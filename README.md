@@ -25,6 +25,11 @@ That's the whole process — no installer, no commands.
 > it opens in seconds. A black terminal window stays open while the app runs —
 > minimize it; closing it closes CultWatch.
 
+**To update (no terminal), if you got the folder via `git clone`:** double-click
+**`CultWatch-Update.bat`** (Windows) or **`CultWatch-Update.command`** (macOS).
+It pulls the latest version, installs anything new, and relaunches. (Didn't
+clone with git? Just replace the folder with a fresh copy.)
+
 ## Quick start (from the terminal)
 
 ```bash
@@ -178,8 +183,10 @@ launch). Notes:
   for non-technical teammates.
 - **macOS** auto-update requires a code-signed app; unsigned mac builds won't
   self-update (Windows/Linux are fine unsigned).
-- Running from source (`npm start` or the `.bat`/`.command`) has no update feed —
-  update those by `git pull` or re-sending the folder.
+- Running from source (`npm start` or the `.bat`/`.command`) has no update feed.
+  If the folder was `git clone`d, update it with one click via
+  **`CultWatch-Update.bat`** / **`CultWatch-Update.command`** (runs `git pull` +
+  `npm install` + launch). Otherwise re-send the folder.
 
 ---
 
@@ -199,8 +206,8 @@ electron/
     steam.js         appdetails · players · reviews · news
     web.js           whole-web news sweep (Google News RSS, keyless)
     reddit.js  bluesky.js  twitch.js  youtube.js  x.js
-CultWatch.bat        double-click launcher for Windows teammates
-CultWatch.command    double-click launcher for macOS teammates
+CultWatch.bat / .command          double-click launcher (install + run)
+CultWatch-Update.bat / .command   double-click updater (git pull + install + run)
 renderer/
   index.html         layout
   styles.css         the "situation room" design system (dark, amber accent)
