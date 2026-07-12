@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+    <title>CultWatch — Situation Room</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- ===== Top command bar ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">
+          <span class="brand-glyph">🍔</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-name">CULT<span>WATCH</span></div>
+          <div class="brand-sub" id="gameName">Happy's Humble Burger Cult</div>
+        </div>
+      </div>
+
+      <div class="launch-status" id="launchStatus" title="Time to launch">
+        <div class="ls-label">LAUNCH</div>
+        <div class="ls-value" id="countdown">—</div>
+      </div>
+
+      <div class="topbar-right">
+        <div class="conn" id="sourceStatus" title="Source health"></div>
+        <div class="updated">
+          <span class="live-dot" id="liveDot"></span>
+          <span id="lastUpdated">connecting…</span>
+        </div>
+        <button class="btn ghost" id="refreshBtn" title="Refresh now (⌘/Ctrl+R)">
+          <span class="ico" id="refreshIco">⟳</span> Refresh
+        </button>
+        <button class="btn ghost icon" id="settingsBtn" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <!-- ===== Main dashboard ===== -->
+    <main class="board" id="board">
+      <!-- KPI row -->
+      <section class="kpis" id="kpis"></section>
+
+      <!-- Chart + review score -->
+      <section class="grid-2">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <h2>Live Concurrent Players</h2>
+            <div class="panel-tools">
+              <span class="chip" id="playersPeakChip">peak —</span>
+              <button class="link-btn" id="clearHistBtn" title="Clear stored history">clear</button>
+            </div>
+          </div>
+          <div class="chart-wrap" id="playerChart"></div>
+        </div>
+
+        <div class="panel review-panel">
+          <div class="panel-head"><h2>Steam Reviews</h2></div>
+          <div id="reviewScore" class="review-score"></div>
+        </div>
+      </section>
+
+      <!-- Twitch live strip -->
+      <section class="panel" id="twitchPanel">
+        <div class="panel-head">
+          <h2><span class="src-dot twitch"></span>Live on Twitch <span class="count" id="twitchCount"></span></h2>
+          <div class="panel-tools"><span class="chip" id="twitchViewers"></span></div>
+        </div>
+        <div class="stream-grid" id="twitchStreams"></div>
+      </section>
+
+      <!-- Feeds -->
+      <section class="grid-2 feeds">
+        <div class="panel feed-panel">
+          <div class="panel-head">
+            <h2>Community Feed</h2>
+            <div class="tabs" id="feedTabs">
+              <button class="tab active" data-feed="all">All</button>
+              <button class="tab" data-feed="reddit"><span class="src-dot reddit"></span>Reddit</button>
+              <button class="tab" data-feed="bluesky"><span class="src-dot bsky"></span>Bluesky</button>
+              <button class="tab" data-feed="x"><span class="src-dot x"></span>X</button>
+            </div>
+          </div>
+          <div class="feed" id="communityFeed"></div>
+        </div>
+
+        <div class="panel feed-panel">
+          <div class="panel-head">
+            <h2>News, Videos &amp; Reviews</h2>
+            <div class="tabs" id="mediaTabs">
+              <button class="tab active" data-feed="all">All</button>
+              <button class="tab" data-feed="news">News</button>
+              <button class="tab" data-feed="youtube"><span class="src-dot yt"></span>YouTube</button>
+              <button class="tab" data-feed="reviews">Reviews</button>
+            </div>
+          </div>
+          <div class="feed" id="mediaFeed"></div>
+        </div>
+      </section>
+
+      <footer class="board-foot">
+        <span id="footStatus"></span>
+        <span class="foot-brand">CultWatch · situation room for Happy's Humble Burger Cult</span>
+      </footer>
+    </main>
+
+    <!-- ===== Settings drawer ===== -->
+    <div class="drawer-scrim" id="drawerScrim"></div>
+    <aside class="drawer" id="settingsDrawer" aria-hidden="true">
+      <div class="drawer-head">
+        <h2>Settings</h2>
+        <button class="btn ghost icon" id="closeSettings">✕</button>
+      </div>
+      <div class="drawer-body" id="settingsBody"></div>
+      <div class="drawer-foot">
+        <span class="save-hint" id="saveHint"></span>
+        <button class="btn primary" id="saveSettings">Save &amp; Refresh</button>
+      </div>
+    </aside>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
