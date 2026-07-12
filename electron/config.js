@@ -17,8 +17,15 @@ const DEFAULTS = {
   gameName: "Happy's Humble Burger Cult",
   launchDate: '2026-07-16T17:00:00Z', // Steam release date (UTC-ish; edit in Settings)
 
-  // Search terms used for Reddit / Bluesky / X / YouTube discovery.
-  keywords: ["Happy's Humble Burger Cult", 'Humble Burger Cult'],
+  // Search terms used for Reddit / Bluesky / X / YouTube / Web discovery.
+  // Includes the game's original name ("Happy's Humble Burgatory") so we catch
+  // chatter that still uses it.
+  keywords: [
+    "Happy's Humble Burger Cult",
+    'Humble Burger Cult',
+    "Happy's Humble Burgatory",
+    'Humble Burgatory'
+  ],
   // Exact Twitch category/game name (must match Steam->Twitch listing).
   twitchGameName: "Happy's Humble Burger Cult",
 
@@ -40,6 +47,7 @@ const DEFAULTS = {
     reddit: true,
     bluesky: true,
     news: true,
+    web: true,
     twitch: true,
     youtube: true,
     x: true

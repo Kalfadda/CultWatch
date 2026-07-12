@@ -8,12 +8,32 @@ const { getJson } = require('./http');
  */
 
 async function search(keywords, limit = 25) {
-  // The public search endpoint takes a single query string.
-  const query = keywords[0] || '';
-  const url = `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(query)}&limit=${limit}&sort=latest`;
-  const json = await getJson(url);
-  const posts = json.posts || [];
-  return posts.map((p) => {
+  // The public search endpoint takes one query string, so we fire one request
+  // per name variant (capped) and merge, newest first, de-duplicated.
+  const terms = (keywords || []).slice(0, 4);
+  if (!terms.length) return [];
+  const perTerm = Math.max(8, Math.ceil(limit / terms.length));
+  const settled = await Promise.all(
+    terms.map((q) =>
+      getJson(
+        `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(q)}&limit=${perTerm}&sort=latest`
+      ).then((j) => ({ posts: j.posts || [] })).catch((err) => ({ error: err }))
+    )
+  );
+  // If every term failed, surface the error instead of hiding it as "0 results".
+  if (settled.every((s) => s.error)) throw settled[0].error;
+  const batches = settled.map((s) => s.posts || []);
+  const seen = new Set();
+  const posts = [];
+  for (const batch of batches) {
+    for (const p of batch) {
+      if (p.cid && seen.has(p.cid)) continue;
+      if (p.cid) seen.add(p.cid);
+      posts.push(p);
+    }
+  }
+  return posts
+    .map((p) => {
     const rkey = (p.uri || '').split('/').pop();
     const handle = p.author && p.author.handle ? p.author.handle : 'unknown';
     return {
@@ -28,7 +48,9 @@ async function search(keywords, limit = 25) {
       url: `https://bsky.app/profile/${handle}/post/${rkey}`,
       created: p.record && p.record.createdAt ? new Date(p.record.createdAt).getTime() : null
     };
-  });
+    })
+    .sort((a, b) => (b.created || 0) - (a.created || 0))
+    .slice(0, limit);
 }
 
 module.exports = { search };

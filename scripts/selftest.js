@@ -38,6 +38,7 @@ function line(label, ok, detail) {
   line('players', snap.status.players.status === 'ok', snap.players.available ? `${snap.players.current} online` : 'no live data yet (pre-launch expected)');
   line('reviews', snap.status.reviews.status === 'ok', snap.reviews ? `${snap.reviews.scoreDesc} — ${snap.reviews.total} reviews` : snap.status.reviews.error);
   line('news', snap.status.news.status === 'ok', `${(snap.news || []).length} items` + ((snap.news[0]) ? ` · latest: "${snap.news[0].title.slice(0, 48)}"` : ''));
+  line('web', snap.status.web.status === 'ok', `${(snap.web || []).length} articles` + ((snap.web[0]) ? ` · "${snap.web[0].title.slice(0, 44)}" (${snap.web[0].source})` : ''));
 
   // Discovery (may warn on locked-down networks)
   const soft = (name) => {

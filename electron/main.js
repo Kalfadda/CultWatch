@@ -12,6 +12,8 @@ let pollTimer = null;
 let polling = false;
 let lastSnapshot = null;
 let osMuted = false;
+let updateTimer = null;
+let autoUpdater = null;
 
 const isDev = process.argv.includes('--dev');
 
@@ -73,6 +75,32 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+// ---- Auto-update (electron-updater + GitHub Releases) ----
+function setupUpdater() {
+  // Only meaningful in a packaged build; `npm start` has no update feed.
+  if (!app.isPackaged) return;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (err) {
+    console.error('[updater] electron-updater not available', err);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  const status = (state, info) => send('update-status', { state, info: info || null });
+  autoUpdater.on('checking-for-update', () => status('checking'));
+  autoUpdater.on('update-available', (info) => status('available', { version: info.version }));
+  autoUpdater.on('update-not-available', () => status('none'));
+  autoUpdater.on('download-progress', (p) => status('downloading', { percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (info) => status('downloaded', { version: info.version }));
+  autoUpdater.on('error', (err) => status('error', { message: (err && err.message) || String(err) }));
+
+  const check = () => autoUpdater.checkForUpdates().catch((err) => console.error('[updater] check failed', err.message));
+  setTimeout(check, 8000); // shortly after launch
+  updateTimer = setInterval(check, 6 * 60 * 60 * 1000); // every 6h
+}
+
 function fireAlerts(prev, snapshot) {
   const cfg = store.get();
   let result;
@@ -130,6 +158,19 @@ function registerIpc() {
   });
   ipcMain.handle('set-os-mute', (_e, muted) => { osMuted = !!muted; return osMuted; });
   ipcMain.handle('get-os-mute', () => osMuted);
+  ipcMain.handle('check-updates', async () => {
+    if (!app.isPackaged) return { ok: false, error: 'Updates apply to the installed build only — you are running from source (npm start).' };
+    if (!autoUpdater) return { ok: false, error: 'Updater is unavailable in this build.' };
+    try {
+      const r = await autoUpdater.checkForUpdates();
+      return { ok: true, version: r && r.updateInfo ? r.updateInfo.version : null };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || String(err) };
+    }
+  });
+  ipcMain.handle('install-update', () => {
+    if (autoUpdater) { try { autoUpdater.quitAndInstall(); } catch (err) { console.error('[updater] install failed', err); } }
+  });
   ipcMain.handle('test-alert', () => {
     const a = { title: '🔔 CultWatch test alert', body: 'Notifications are working. This is what a launch-day alert looks like.', urgency: 'normal', url: `https://store.steampowered.com/app/${store.get().appId}/`, ts: Date.now(), type: 'test' };
     send('alerts', [a]);
@@ -147,6 +188,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   registerIpc();
   createWindow();
+  setupUpdater();
   runPoll('startup');
   scheduleNext();
 

@@ -11,7 +11,8 @@ async function search({ apiKey, keywords }, maxResults = 12) {
   if (!apiKey) {
     return { enabled: false, reason: 'Add a YouTube Data API key in Settings', videos: [] };
   }
-  const q = keywords[0] || '';
+  // YouTube treats "|" as OR, so we search every name variant at once.
+  const q = (keywords || []).map((k) => `"${k}"`).join('|') || '';
   const url =
     `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date` +
     `&maxResults=${maxResults}&q=${encodeURIComponent(q)}&key=${encodeURIComponent(apiKey)}`;

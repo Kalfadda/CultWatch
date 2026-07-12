@@ -17,11 +17,14 @@ contextBridge.exposeInMainWorld('cultwatch', {
   setOsMute: (muted) => ipcRenderer.invoke('set-os-mute', muted),
   getOsMute: () => ipcRenderer.invoke('get-os-mute'),
   testAlert: () => ipcRenderer.invoke('test-alert'),
+  checkUpdates: () => ipcRenderer.invoke('check-updates'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
 
   onDataUpdate: (cb) => subscribe('data-update', cb),
   onPollStart: (cb) => subscribe('poll-start', cb),
   onPollError: (cb) => subscribe('poll-error', cb),
-  onAlerts: (cb) => subscribe('alerts', cb)
+  onAlerts: (cb) => subscribe('alerts', cb),
+  onUpdateStatus: (cb) => subscribe('update-status', cb)
 });
 
 function subscribe(channel, cb) {

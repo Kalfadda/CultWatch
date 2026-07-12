@@ -26,6 +26,7 @@
   --reddit: #ff5414;
   --bsky: #2b9bff;
   --x: #e7e9ea;
+  --web: #4ad6c0;
 
   --radius: 14px;
   --radius-sm: 9px;
@@ -140,6 +141,12 @@ a:hover { text-decoration: underline; }
 .btn .ico { display: inline-block; }
 .btn .ico.spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Update pill ===== */
+.update-pill { background: var(--pos); color: #08130c; border-color: transparent; font-weight: 700; animation: pill-in .3s ease; }
+.update-pill:hover { background: #5be89a; }
+.update-pill.downloading { background: var(--info); color: #06121f; cursor: default; }
+@keyframes pill-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
 /* ===== Alert bell + center ===== */
 .bell-wrap { position: relative; }

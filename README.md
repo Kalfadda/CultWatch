@@ -9,7 +9,23 @@ video coverage — all on one screen that refreshes itself.
 
 ---
 
-## Quick start
+## Easiest way (for non-technical teammates)
+
+You don't need the terminal at all. Get the CultWatch folder (a zip is fine),
+then:
+
+- **Windows** — double-click **`CultWatch.bat`**
+- **macOS** — double-click **`CultWatch.command`**
+
+On the **first** run it installs everything automatically (and, on Windows, will
+even offer to install Node.js for you). Every run after that just opens the app.
+That's the whole process — no installer, no commands.
+
+> First launch downloads the app runtime, so it takes a few minutes. After that
+> it opens in seconds. A black terminal window stays open while the app runs —
+> minimize it; closing it closes CultWatch.
+
+## Quick start (from the terminal)
 
 ```bash
 npm install      # installs Electron (downloads the runtime the first time)
@@ -41,6 +57,7 @@ npm run check    # hits the live endpoints and prints a health report
 | **Review score, positive/negative, recent reviews** | Steam `appreviews` | No |
 | **Store details, price, genres, launch date** | Steam `appdetails` | No |
 | **Official news & announcements** | Steam `GetNewsForApp` | No |
+| **Web / press coverage** | Google News RSS (whole-web sweep) | No |
 | **Reddit mentions** | Reddit OAuth search | Client ID (free) |
 | **Bluesky posts** | Bluesky public AppView | No |
 | **Live Twitch streams** + viewer totals | Twitch Helix | Client ID + Secret |
@@ -110,7 +127,9 @@ Open with the **⚙** button or `Ctrl/⌘ + ,`.
 
 - **Target game** — App ID, display name, launch date/time (drives the
   countdown), and refresh interval (min 15s, default 60s).
-- **Discovery keywords** — terms used for Reddit / Bluesky / X / YouTube search.
+- **Discovery keywords** — terms used for Reddit / Bluesky / X / YouTube / Web
+  search. Ships with both the current name and the original **"Happy's Humble
+  Burgatory"** so older chatter is caught too. Add or remove terms freely.
 - **Credentials** — the optional keys above.
 - **Active sources** — toggle any source on/off.
 
@@ -134,6 +153,36 @@ Output lands in `release/`. The app icon is committed at `build/icon.png`
 
 ---
 
+## Auto-update
+
+Installed builds update themselves via **electron-updater + GitHub Releases** —
+no more re-sending folders. On launch (and every 6 hours) CultWatch checks the
+repo's Releases, downloads a newer version in the background, and shows a green
+**"Update ready — Restart"** pill in the top bar; clicking it installs and
+relaunches. There's also **⚙ Settings → ⬇ Updates** to check on demand.
+
+**Publishing a new version** (maintainer):
+
+1. Bump `version` in `package.json`.
+2. Set a GitHub token so electron-builder can upload the release:
+   `set GH_TOKEN=<your token>` (Windows) / `export GH_TOKEN=…` (mac/Linux).
+3. `npm run release` — builds and publishes to the repo's Releases.
+
+Every installed copy picks it up automatically within 6 hours (or on next
+launch). Notes:
+
+- **Private repo:** because `kalfadda/cultwatch` is private, each installed copy
+  needs a token to read release assets — set a `GH_TOKEN` env var on the machine,
+  or publish the releases to a **public** repo (change `build.publish.repo`).
+  Public releases = zero-config updates for everyone; that's the simplest path
+  for non-technical teammates.
+- **macOS** auto-update requires a code-signed app; unsigned mac builds won't
+  self-update (Windows/Linux are fine unsigned).
+- Running from source (`npm start` or the `.bat`/`.command`) has no update feed —
+  update those by `git pull` or re-sending the folder.
+
+---
+
 ## Architecture
 
 ```
@@ -148,7 +197,10 @@ electron/
   services/
     http.js          fetch wrapper (User-Agent, timeout, JSON helpers)
     steam.js         appdetails · players · reviews · news
+    web.js           whole-web news sweep (Google News RSS, keyless)
     reddit.js  bluesky.js  twitch.js  youtube.js  x.js
+CultWatch.bat        double-click launcher for Windows teammates
+CultWatch.command    double-click launcher for macOS teammates
 renderer/
   index.html         layout
   styles.css         the "situation room" design system (dark, amber accent)

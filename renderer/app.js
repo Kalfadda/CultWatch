@@ -64,6 +64,7 @@ async function boot() {
   cultwatch.onPollStart(() => setBusy(true));
   cultwatch.onPollError((e) => { setBusy(false); toast(e.message || 'Refresh failed', true); });
   cultwatch.onAlerts((list) => handleAlerts(list));
+  cultwatch.onUpdateStatus((s) => handleUpdateStatus(s));
 
   soundMuted = await cultwatch.getOsMute();
   updateMuteBtn();
@@ -379,6 +380,10 @@ function communityEmpty(s) {
 // ---- Media feed (news + youtube + reviews) ----
 function renderMediaFeed(s) {
   const items = [];
+  (s.web || []).forEach((w) => items.push({
+    src: 'web', srcColor: 'var(--web)', icon: '🌐', time: w.date,
+    author: w.source, title: w.title, text: '', url: w.url, meta: []
+  }));
   (s.news || []).forEach((n) => items.push({
     src: 'news', srcColor: 'var(--accent)', icon: '📰', time: n.date,
     author: n.author, title: n.title, text: n.summary, url: n.url, meta: [n.source]
@@ -398,7 +403,7 @@ function renderMediaFeed(s) {
 
   const filtered = mediaFilter === 'all' ? items : items.filter((i) => i.src === mediaFilter);
   filtered.sort((a, b) => (b.time || 0) - (a.time || 0));
-  renderFeedInto('mediaFeed', filtered, 'No news, videos, or reviews yet.<br>Steam announcements show here without any setup.');
+  renderFeedInto('mediaFeed', filtered, 'No news, videos, or reviews yet.<br>Web news &amp; Steam announcements show here without any setup.');
 }
 
 function renderFeedInto(id, items, emptyHtml) {
@@ -449,7 +454,8 @@ function installImageFallbacks() {
 function renderSourceStatus(s) {
   const map = s.status || {};
   const order = [['players', 'Steam players'], ['reviews', 'Reviews'], ['news', 'Steam news'],
-    ['reddit', 'Reddit'], ['bluesky', 'Bluesky'], ['twitch', 'Twitch'], ['youtube', 'YouTube'], ['x', 'X']];
+    ['web', 'Web / News'], ['reddit', 'Reddit'], ['bluesky', 'Bluesky'], ['twitch', 'Twitch'],
+    ['youtube', 'YouTube'], ['x', 'X']];
   el('sourceStatus').innerHTML = order.map(([k, name]) => {
     const st = map[k] || { status: 'off' };
     const title = `${name}: ${st.status}${st.error ? ' — ' + st.error : ''}${st.ms ? ` (${st.ms}ms)` : ''}`;
@@ -581,7 +587,7 @@ function buildSettings() {
 
   body.innerHTML = html;
 
-  const srcNames = { steam: 'Steam', reddit: 'Reddit', bluesky: 'Bluesky', news: 'Steam News', twitch: 'Twitch', youtube: 'YouTube', x: 'X' };
+  const srcNames = { steam: 'Steam', reddit: 'Reddit', bluesky: 'Bluesky', news: 'Steam News', web: 'Web / News', twitch: 'Twitch', youtube: 'YouTube', x: 'X' };
   el('sourceToggles').innerHTML = Object.entries(srcNames).map(([k, name]) => {
     const on = config && config.sources && config.sources[k];
     return `<label class="toggle ${on ? 'on' : ''}"><input type="checkbox" data-src="${k}" ${on ? 'checked' : ''}/> ${name}</label>`;
@@ -661,6 +667,17 @@ function wireUi() {
   });
   el('testAlertBtn').addEventListener('click', () => cultwatch.testAlert());
   el('clearAlertsBtn').addEventListener('click', () => { alertLog = []; unreadAlerts = 0; updateBadge(); renderAlertList(); });
+
+  // Auto-update
+  el('updatePill').addEventListener('click', () => {
+    if (el('updatePill').classList.contains('downloading')) return;
+    cultwatch.installUpdate();
+  });
+  el('checkUpdatesBtn').addEventListener('click', async () => {
+    manualUpdateCheck = true;
+    const r = await cultwatch.checkUpdates();
+    if (!r.ok) { manualUpdateCheck = false; toast(r.error || 'Update check unavailable', true); }
+  });
 
   el('feedTabs').addEventListener('click', (e) => {
     const t = e.target.closest('.tab'); if (!t) return;
@@ -784,6 +801,46 @@ function playChime(critical) {
       t += 0.14;
     }
   } catch { /* audio not available */ }
+}
+
+// ============================================================
+// Auto-update UI
+// ============================================================
+let manualUpdateCheck = false;
+function handleUpdateStatus(s) {
+  const pill = el('updatePill');
+  const text = el('updatePillText');
+  switch (s.state) {
+    case 'checking':
+      if (manualUpdateCheck) toast('Checking for updates…');
+      break;
+    case 'available':
+      toast(`⬇ Update ${s.info && s.info.version ? 'v' + s.info.version : ''} available — downloading…`);
+      pill.classList.remove('hidden', 'downloading');
+      text.textContent = 'Downloading update…';
+      pill.classList.add('downloading');
+      break;
+    case 'downloading':
+      pill.classList.remove('hidden');
+      pill.classList.add('downloading');
+      text.textContent = `Downloading… ${s.info ? s.info.percent : 0}%`;
+      break;
+    case 'downloaded':
+      pill.classList.remove('hidden', 'downloading');
+      text.textContent = `Update ready${s.info && s.info.version ? ' v' + s.info.version : ''} — Restart`;
+      toast('✅ Update downloaded — click "Update ready" to restart');
+      handleAlerts([{ type: 'test', title: '⬇ Update ready', body: `A new version of CultWatch${s.info && s.info.version ? ' (v' + s.info.version + ')' : ''} is ready. Restart to install.`, urgency: 'normal', url: '', ts: Date.now() }]);
+      break;
+    case 'none':
+      if (manualUpdateCheck) toast('You are on the latest version ✓');
+      break;
+    case 'error':
+      if (manualUpdateCheck) toast(`Update check failed: ${s.info ? s.info.message : 'unknown'}`, true);
+      break;
+    default:
+      break;
+  }
+  if (s.state === 'none' || s.state === 'error') manualUpdateCheck = false;
 }
 
 let toastTimer = null;

@@ -30,6 +30,7 @@
           <span class="live-dot" id="liveDot"></span>
           <span id="lastUpdated">connecting…</span>
         </div>
+        <button class="btn update-pill hidden" id="updatePill" title="A new version is ready">⬇ <span id="updatePillText">Update ready — Restart</span></button>
         <button class="btn ghost" id="refreshBtn" title="Refresh now (⌘/Ctrl+R)">
           <span class="ico" id="refreshIco">⟳</span> Refresh
         </button>
@@ -104,7 +105,8 @@
             <h2>News, Videos &amp; Reviews</h2>
             <div class="tabs" id="mediaTabs">
               <button class="tab active" data-feed="all">All</button>
-              <button class="tab" data-feed="news">News</button>
+              <button class="tab" data-feed="web"><span class="src-dot web"></span>Web</button>
+              <button class="tab" data-feed="news">Steam</button>
               <button class="tab" data-feed="youtube"><span class="src-dot yt"></span>YouTube</button>
               <button class="tab" data-feed="reviews">Reviews</button>
             </div>
@@ -128,6 +130,7 @@
       </div>
       <div class="drawer-body" id="settingsBody"></div>
       <div class="drawer-foot">
+        <button class="btn ghost" id="checkUpdatesBtn" title="Check for a new version">⬇ Updates</button>
         <span class="save-hint" id="saveHint"></span>
         <button class="btn primary" id="saveSettings">Save &amp; Refresh</button>
       </div>

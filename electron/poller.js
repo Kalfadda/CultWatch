@@ -6,6 +6,7 @@ const bluesky = require('./services/bluesky');
 const twitch = require('./services/twitch');
 const youtube = require('./services/youtube');
 const x = require('./services/x');
+const web = require('./services/web');
 
 /**
  * Fetches every enabled source, tolerating individual failures. Returns a
@@ -34,6 +35,7 @@ async function collect(store, now = Date.now()) {
     settle('players', src.steam, () => steam.getCurrentPlayers(appId, cfg.steamApiKey)),
     settle('reviews', src.steam, () => steam.getReviews(appId)),
     settle('news', src.news, () => steam.getNews(appId, 12)),
+    settle('web', src.web, () => web.search(cfg.keywords, 20)),
     settle('reddit', src.reddit, () =>
       reddit.search(
         { keywords: cfg.keywords, clientId: cfg.redditClientId, clientSecret: cfg.redditClientSecret },
@@ -78,6 +80,7 @@ async function collect(store, now = Date.now()) {
       sources: src
     },
     game: by.appDetails.data || null,
+    web: by.web.data || [],
     players: {
       current: playersRes.available ? playersRes.count : null,
       available: playersRes.available,
