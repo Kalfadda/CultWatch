@@ -10,6 +10,10 @@ let config = null;
 let feedFilter = 'all';
 let mediaFilter = 'all';
 let countdownTimer = null;
+let alertLog = [];
+let unreadAlerts = 0;
+let soundMuted = false;
+let audioCtx = null;
 const $ = (sel) => document.querySelector(sel);
 const el = (id) => document.getElementById(id);
 
@@ -59,6 +63,11 @@ async function boot() {
   });
   cultwatch.onPollStart(() => setBusy(true));
   cultwatch.onPollError((e) => { setBusy(false); toast(e.message || 'Refresh failed', true); });
+  cultwatch.onAlerts((list) => handleAlerts(list));
+
+  soundMuted = await cultwatch.getOsMute();
+  updateMuteBtn();
+  renderAlertList();
 }
 
 function setBusy(on) {
@@ -545,6 +554,31 @@ function buildSettings() {
     });
     html += `</div>`;
   });
+
+  // Launch alerts
+  const a = (config && config.alerts) || {};
+  const alertToggles = [
+    ['enabled', 'Master switch'], ['onLaunch', 'Game goes live'], ['milestones', 'Player milestones'],
+    ['newPeak', 'New peak'], ['spikes', 'Spikes / drops'], ['reviews', 'New reviews'],
+    ['reviewsOnlyNegative', 'Only negative reviews'], ['scoreBandChange', 'Rating band change'],
+    ['bigStreams', 'Big Twitch streams']
+  ];
+  html += `<div class="set-group"><h3>Launch Alerts</h3><div class="toggles" id="alertToggles">` +
+    alertToggles.map(([k, label]) => {
+      const on = a[k];
+      return `<label class="toggle ${on ? 'on' : ''}"><input type="checkbox" data-alert="${k}" ${on ? 'checked' : ''}/> ${esc(label)}</label>`;
+    }).join('') + `</div>`;
+  const alertNums = [
+    ['spikePct', 'Spike threshold (% change)'],
+    ['spikeMinPlayers', 'Ignore spikes below N players'],
+    ['bigStreamViewers', 'Big-stream viewer threshold']
+  ];
+  alertNums.forEach(([k, label]) => {
+    html += `<div class="field"><label>${esc(label)}</label>
+      <input type="number" data-alertnum="${k}" value="${esc(a[k] != null ? a[k] : '')}"/></div>`;
+  });
+  html += `</div>`;
+
   body.innerHTML = html;
 
   const srcNames = { steam: 'Steam', reddit: 'Reddit', bluesky: 'Bluesky', news: 'Steam News', twitch: 'Twitch', youtube: 'YouTube', x: 'X' };
@@ -552,7 +586,7 @@ function buildSettings() {
     const on = config && config.sources && config.sources[k];
     return `<label class="toggle ${on ? 'on' : ''}"><input type="checkbox" data-src="${k}" ${on ? 'checked' : ''}/> ${name}</label>`;
   }).join('');
-  el('sourceToggles').querySelectorAll('input').forEach((cb) => {
+  body.querySelectorAll('.toggles input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener('change', () => cb.closest('.toggle').classList.toggle('on', cb.checked));
   });
 }
@@ -568,6 +602,14 @@ async function saveSettings() {
   });
   el('sourceToggles').querySelectorAll('input[data-src]').forEach((cb) => {
     patch.sources[cb.dataset.src] = cb.checked;
+  });
+  patch.alerts = {};
+  document.querySelectorAll('input[data-alert]').forEach((cb) => {
+    patch.alerts[cb.dataset.alert] = cb.checked;
+  });
+  document.querySelectorAll('input[data-alertnum]').forEach((inp) => {
+    const v = parseInt(inp.value, 10);
+    if (!Number.isNaN(v)) patch.alerts[inp.dataset.alertnum] = Math.max(0, v);
   });
   el('saveHint').textContent = 'saving…';
   config = await cultwatch.updateConfig(patch);
@@ -600,6 +642,25 @@ function wireUi() {
     const item = e.target.closest('[data-url]');
     if (item && item.dataset.url) cultwatch.openExternal(item.dataset.url);
   });
+
+  // Alert center
+  el('bellBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleAlertCenter(); });
+  el('alertCenter').addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => toggleAlertCenter(false));
+  el('alertList').addEventListener('click', (e) => {
+    const it = e.target.closest('[data-alert]');
+    if (!it) return;
+    const a = alertLog[Number(it.dataset.alert)];
+    if (a && a.url) cultwatch.openExternal(a.url);
+  });
+  el('muteBtn').addEventListener('click', async () => {
+    soundMuted = !soundMuted;
+    await cultwatch.setOsMute(soundMuted);
+    updateMuteBtn();
+    toast(soundMuted ? 'Notifications muted' : 'Notifications on');
+  });
+  el('testAlertBtn').addEventListener('click', () => cultwatch.testAlert());
+  el('clearAlertsBtn').addEventListener('click', () => { alertLog = []; unreadAlerts = 0; updateBadge(); renderAlertList(); });
 
   el('feedTabs').addEventListener('click', (e) => {
     const t = e.target.closest('.tab'); if (!t) return;
@@ -634,6 +695,95 @@ function wireUi() {
     // refresh relative timestamps in feeds
     document.querySelectorAll('.fi-time').forEach(() => {});
   }, 5000);
+}
+
+// ============================================================
+// Alert center
+// ============================================================
+const ALERT_ICONS = {
+  launch: '🚀', milestone: '🎉', peak: '📈', 'spike-up': '⚡', 'spike-down': '🔻',
+  'review-pos': '👍', 'review-neg': '👎', 'first-review': '⭐', 'score-band': '📊',
+  'big-stream': '📺', test: '🔔'
+};
+
+function handleAlerts(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const centerOpen = !el('alertCenter').classList.contains('hidden');
+  for (const a of list) {
+    alertLog.unshift({ ...a, read: centerOpen });
+    if (!centerOpen) unreadAlerts++;
+  }
+  if (alertLog.length > 100) alertLog = alertLog.slice(0, 100);
+
+  updateBadge();
+  renderAlertList();
+
+  // Bell shake + toast + sound for the newest alert.
+  const bell = el('bellBtn');
+  bell.classList.remove('ring'); void bell.offsetWidth; bell.classList.add('ring');
+  const top = list[0];
+  toast(`${ALERT_ICONS[top.type] || '🔔'} ${top.title}`, top.urgency === 'critical');
+  if (!soundMuted) playChime(list.some((a) => a.urgency === 'critical'));
+}
+
+function updateBadge() {
+  const b = el('alertBadge');
+  if (unreadAlerts > 0) { b.textContent = unreadAlerts > 99 ? '99+' : unreadAlerts; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+
+function renderAlertList() {
+  const box = el('alertList');
+  if (!alertLog.length) {
+    box.innerHTML = `<div class="ac-empty">No alerts yet.<br>Launch-day events — milestones, spikes, reviews and big streams — show up here and as desktop notifications.</div>`;
+    return;
+  }
+  box.innerHTML = alertLog.map((a, i) => `
+    <div class="ac-item ${a.read ? '' : 'unread'} ${a.urgency === 'critical' ? 'crit' : ''}" data-alert="${i}">
+      <div class="ac-ico">${ALERT_ICONS[a.type] || '🔔'}</div>
+      <div class="ac-body">
+        <div class="ac-title">${esc(a.title)}</div>
+        <div class="ac-text">${esc(a.body)}</div>
+        <div class="ac-time">${new Date(a.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ago(a.ts)} ago</div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleAlertCenter(force) {
+  const c = el('alertCenter');
+  const show = force != null ? force : c.classList.contains('hidden');
+  c.classList.toggle('hidden', !show);
+  if (show) {
+    unreadAlerts = 0;
+    alertLog.forEach((a) => { a.read = true; });
+    updateBadge();
+    renderAlertList();
+  }
+}
+
+function updateMuteBtn() {
+  const btn = el('muteBtn');
+  if (btn) btn.textContent = soundMuted ? '🔇 muted' : '🔊 on';
+}
+
+// Short synthesized chime — no external audio asset (CSP-safe).
+function playChime(critical) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = critical ? [880, 660, 880] : [660, 880];
+    let t = audioCtx.currentTime;
+    for (const f of notes) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine'; osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.18);
+      t += 0.14;
+    }
+  } catch { /* audio not available */ }
 }
 
 let toastTimer = null;

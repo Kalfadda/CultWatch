@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { DEFAULT_ALERTS } = require('./alerts');
 
 /**
  * Tiny zero-dependency JSON config + persistence store.
@@ -33,6 +34,7 @@ const DEFAULTS = {
   // --- Behaviour ---
   refreshIntervalSec: 60,
   historyMaxPoints: 2880, // ~48h at 1/min
+  alerts: DEFAULT_ALERTS,
   sources: {
     steam: true,
     reddit: true,
@@ -49,8 +51,31 @@ class Store {
     this.dir = userDataDir;
     this.file = path.join(userDataDir, 'cultwatch-config.json');
     this.historyFile = path.join(userDataDir, 'cultwatch-history.json');
+    this.alertStateFile = path.join(userDataDir, 'cultwatch-alertstate.json');
     this.data = this._load();
     this.history = this._loadHistory();
+    this.alertState = this._loadJson(this.alertStateFile, {});
+  }
+
+  _loadJson(file, fallback) {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return fallback;
+    }
+  }
+
+  getAlertState() {
+    return structuredClone(this.alertState);
+  }
+
+  setAlertState(state) {
+    this.alertState = state || {};
+    try {
+      fs.writeFileSync(this.alertStateFile, JSON.stringify(this.alertState));
+    } catch (err) {
+      console.error('[config] failed to persist alert state', err);
+    }
   }
 
   _load() {

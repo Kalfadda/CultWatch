@@ -10,7 +10,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "check": "node scripts/selftest.js",
+    "check": "node scripts/test-alerts.js && node scripts/selftest.js",
+    "test:alerts": "node scripts/test-alerts.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",

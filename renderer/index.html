@@ -33,6 +33,20 @@
         <button class="btn ghost" id="refreshBtn" title="Refresh now (⌘/Ctrl+R)">
           <span class="ico" id="refreshIco">⟳</span> Refresh
         </button>
+        <div class="bell-wrap">
+          <button class="btn ghost icon" id="bellBtn" title="Alerts">🔔<span class="badge hidden" id="alertBadge">0</span></button>
+          <div class="alert-center hidden" id="alertCenter">
+            <div class="ac-head">
+              <span>Alert Center</span>
+              <div class="ac-tools">
+                <button class="link-btn" id="testAlertBtn" title="Send a test notification">test</button>
+                <button class="link-btn" id="muteBtn" title="Mute notifications">🔊 on</button>
+                <button class="link-btn" id="clearAlertsBtn">clear</button>
+              </div>
+            </div>
+            <div class="ac-list" id="alertList"></div>
+          </div>
+        </div>
         <button class="btn ghost icon" id="settingsBtn" title="Settings">⚙</button>
       </div>
     </header>

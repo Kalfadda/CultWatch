@@ -1,15 +1,17 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, Notification } = require('electron');
 const path = require('path');
 const { Store } = require('./config');
 const { collect } = require('./poller');
+const { evaluate } = require('./alerts');
 
 let win = null;
 let store = null;
 let pollTimer = null;
 let polling = false;
 let lastSnapshot = null;
+let osMuted = false;
 
 const isDev = process.argv.includes('--dev');
 
@@ -45,11 +47,13 @@ function createWindow() {
 async function runPoll(reason = 'timer') {
   if (polling) return lastSnapshot;
   polling = true;
+  const prev = lastSnapshot;
   send('poll-start', { reason, ts: Date.now() });
   try {
     const snapshot = await collect(store);
     lastSnapshot = snapshot;
     send('data-update', snapshot);
+    fireAlerts(prev, snapshot);
     return snapshot;
   } catch (err) {
     send('poll-error', { message: err.message || String(err) });
@@ -67,6 +71,38 @@ function scheduleNext() {
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+function fireAlerts(prev, snapshot) {
+  const cfg = store.get();
+  let result;
+  try {
+    result = evaluate(prev, snapshot, store.getAlertState(), cfg.alerts, Date.now());
+  } catch (err) {
+    console.error('[alerts] evaluation failed', err);
+    return;
+  }
+  store.setAlertState(result.state);
+  if (!result.alerts.length) return;
+
+  // Always log to the in-app alert center.
+  send('alerts', result.alerts);
+
+  // OS toasts respect the master switch + runtime mute, and are capped so a
+  // burst can't spam the desktop.
+  if (osMuted || !(cfg.alerts && cfg.alerts.enabled) || !Notification.isSupported()) return;
+  for (const a of result.alerts.slice(0, 5)) {
+    const n = new Notification({ title: a.title, body: a.body, urgency: a.urgency, silent: false });
+    n.on('click', () => {
+      if (win && !win.isDestroyed()) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
+      if (a.url) shell.openExternal(a.url);
+    });
+    n.show();
+  }
 }
 
 function registerIpc() {
@@ -91,6 +127,18 @@ function registerIpc() {
   });
   ipcMain.handle('open-store-page', () => {
     shell.openExternal(`https://store.steampowered.com/app/${store.get().appId}/`);
+  });
+  ipcMain.handle('set-os-mute', (_e, muted) => { osMuted = !!muted; return osMuted; });
+  ipcMain.handle('get-os-mute', () => osMuted);
+  ipcMain.handle('test-alert', () => {
+    const a = { title: '🔔 CultWatch test alert', body: 'Notifications are working. This is what a launch-day alert looks like.', urgency: 'normal', url: `https://store.steampowered.com/app/${store.get().appId}/`, ts: Date.now(), type: 'test' };
+    send('alerts', [a]);
+    if (!osMuted && Notification.isSupported()) {
+      const n = new Notification({ title: a.title, body: a.body });
+      n.on('click', () => { if (win && !win.isDestroyed()) { win.show(); win.focus(); } });
+      n.show();
+    }
+    return true;
   });
 }
 

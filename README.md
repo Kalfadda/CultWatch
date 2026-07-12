@@ -52,6 +52,34 @@ ok, red = erroring, hollow = disabled). Hover any dot for detail and latency.
 
 ---
 
+## Launch-day alerts 🔔
+
+CultWatch watches the numbers so you don't have to stare at the screen. The
+**🔔 bell** in the top bar is your alert center; each event also fires a native
+**desktop notification** (click it to jump to the relevant page) and a subtle
+chime. Mute both with one click, or send a **test** notification to confirm
+they're wired up.
+
+Alerts fire for:
+
+- **🚀 We're live** — the moment Steam first reports live players.
+- **🎉 Player milestones** — 100, 250, 500, 1K, 2.5K, 5K, 10K, … concurrent.
+- **📈 New peak** — a fresh all-time concurrent high (throttled).
+- **⚡ Surge / 🔻 drop** — a sharp % swing between samples. A surge often means a
+  streamer just went live; a drop can flag an outage or crash spike (critical).
+- **⭐ First review** and **👍/👎 new reviews** — with the review text inline, so
+  you can respond fast. Optionally **only negative** reviews.
+- **📊 Rating band change** — e.g. "Very Positive" → "Mostly Positive".
+- **📺 Big Twitch streams** — someone above your viewer threshold picks up the
+  game.
+
+Tune every toggle and threshold (spike %, minimum players, big-stream viewers)
+under **⚙ Settings → Launch Alerts**. Alert bookkeeping is de-duplicated and
+persisted, so you won't get spammed with the same event or the whole review
+backlog after a restart. Logic is unit-tested — run `npm run test:alerts`.
+
+---
+
 ## Getting the optional keys
 
 - **Steam Web API key** *(optional)* — <https://steamcommunity.com/dev/apikey>.
@@ -115,6 +143,8 @@ electron/
   config.js          Zero-dep JSON settings + player-history persistence
   poller.js          Fetches every source in parallel, tolerates failures,
                      builds one snapshot with a per-source status map
+  alerts.js          Pure alert engine: diffs snapshots -> notifications
+                     (launch, milestones, spikes, reviews, big streams)
   services/
     http.js          fetch wrapper (User-Agent, timeout, JSON helpers)
     steam.js         appdetails · players · reviews · news
@@ -125,8 +155,10 @@ renderer/
   app.js             rendering, hand-rolled SVG player chart + review ring,
                      countdown, settings drawer, feeds
 scripts/
-  selftest.js        headless data-layer smoke test (npm run check)
+  selftest.js        headless data-layer smoke test (live endpoints)
+  test-alerts.js     alert-engine unit tests (npm run test:alerts)
   gen-icon.js        dependency-free PNG icon generator
+                     (npm run check runs the alert tests + the smoke test)
 ```
 
 **Why the main process does the fetching:** browsers block cross-origin calls to
@@ -139,6 +171,7 @@ survives restarts:
 
 - **Config:** `<userData>/cultwatch-config.json`
 - **History:** `<userData>/cultwatch-history.json`
+- **Alert state:** `<userData>/cultwatch-alertstate.json` (de-dup bookkeeping)
 
 `<userData>` is `%APPDATA%/CultWatch` (Windows), `~/Library/Application
 Support/CultWatch` (macOS), or `~/.config/CultWatch` (Linux).
