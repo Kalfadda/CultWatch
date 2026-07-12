@@ -34,7 +34,13 @@ async function collect(store, now = Date.now()) {
     settle('players', src.steam, () => steam.getCurrentPlayers(appId, cfg.steamApiKey)),
     settle('reviews', src.steam, () => steam.getReviews(appId)),
     settle('news', src.news, () => steam.getNews(appId, 12)),
-    settle('reddit', src.reddit, () => reddit.search(cfg.keywords, 25)),
+    settle('reddit', src.reddit, () =>
+      reddit.search(
+        { keywords: cfg.keywords, clientId: cfg.redditClientId, clientSecret: cfg.redditClientSecret },
+        25,
+        now
+      )
+    ),
     settle('bluesky', src.bluesky, () => bluesky.search(cfg.keywords, 25)),
     settle('twitch', src.twitch, () =>
       twitch.getLiveStreams(

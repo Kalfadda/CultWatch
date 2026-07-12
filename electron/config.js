@@ -23,6 +23,8 @@ const DEFAULTS = {
 
   // --- Credentials (optional; unlock extra sources) ---
   steamApiKey: '',
+  redditClientId: '',
+  redditClientSecret: '',
   twitchClientId: '',
   twitchClientSecret: '',
   youtubeApiKey: '',

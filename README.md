@@ -41,7 +41,7 @@ npm run check    # hits the live endpoints and prints a health report
 | **Review score, positive/negative, recent reviews** | Steam `appreviews` | No |
 | **Store details, price, genres, launch date** | Steam `appdetails` | No |
 | **Official news & announcements** | Steam `GetNewsForApp` | No |
-| **Reddit mentions** | Reddit search JSON | No |
+| **Reddit mentions** | Reddit OAuth search | Client ID (free) |
 | **Bluesky posts** | Bluesky public AppView | No |
 | **Live Twitch streams** + viewer totals | Twitch Helix | Client ID + Secret |
 | **Recent YouTube videos** | YouTube Data API v3 | API key |
@@ -56,6 +56,12 @@ ok, red = erroring, hollow = disabled). Hover any dot for detail and latency.
 
 - **Steam Web API key** *(optional)* — <https://steamcommunity.com/dev/apikey>.
   Core Steam data doesn't need it; it's there for reliability/rate headroom.
+- **Reddit Client ID** — Reddit locked down unauthenticated API access under its
+  Responsible Builder Policy, so a free app token is now required. Create one at
+  <https://www.reddit.com/prefs/apps> → **create app** → type **installed app**
+  → redirect URI `http://localhost` → paste the ID shown *under the app name*.
+  Client ID alone is enough (no secret, no approval queue at our ~1 req/min).
+  If you registered a "web app" instead, also paste its secret.
 - **Twitch** — create an app at <https://dev.twitch.tv/console/apps> to get a
   **Client ID** and **Client Secret**. CultWatch mints its own app token.
   The "Twitch category / game name" in Settings must exactly match Twitch's
@@ -141,9 +147,12 @@ Support/CultWatch` (macOS), or `~/.config/CultWatch` (Linux).
 
 ## Troubleshooting
 
-- **Reddit / Bluesky show an error** — these APIs block some datacenter/VPN IP
-  ranges. From a normal residential desktop connection they work out of the box.
-  `npm run check` will report this too.
+- **Reddit shows an error** — Reddit now requires an OAuth token even for
+  reads (Responsible Builder Policy). Add a free **Client ID** in Settings (see
+  above). Without it, CultWatch tries the public RSS fallback, which Reddit also
+  rate-limits, so a Client ID is strongly recommended.
+- **Bluesky shows an error** — its public API blocks some datacenter/VPN IP
+  ranges. From a normal residential desktop connection it works out of the box.
 - **Twitch says "no category yet"** — Twitch only creates the game category once
   streamers tag it (usually right around launch). It'll populate automatically.
 - **Players stay blank before launch** — expected. Steam has no live player data

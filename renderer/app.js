@@ -359,7 +359,9 @@ function renderCommunityFeed(s) {
 
 function communityEmpty(s) {
   const x = s.x || {};
+  const st = s.status || {};
   const notes = [];
+  if (st.reddit && st.reddit.status === 'error') notes.push('Reddit needs a free Client ID (Settings)');
   if (!x.enabled && s.config.sources.x) notes.push('X needs a Bearer token (Settings)');
   return 'No community posts matched yet.<br>New mentions appear here in real time.' +
     (notes.length ? `<br><span style="color:var(--muted-2);font-size:11px">${notes.join(' · ')}</span>` : '');
@@ -505,6 +507,10 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'Steam (optional key)', fields: [
     { key: 'steamApiKey', label: 'Steam Web API key', type: 'password', hint: 'Optional — core Steam data works without it. Get one at <a href="https://steamcommunity.com/dev/apikey">steamcommunity.com/dev/apikey</a>' }
+  ]},
+  { group: 'Reddit', fields: [
+    { key: 'redditClientId', label: 'Reddit Client ID', type: 'text', hint: 'Reddit now requires auth. Create a free app at <a href="https://www.reddit.com/prefs/apps">reddit.com/prefs/apps</a> — pick type <b>installed app</b>, set redirect URI to http://localhost, then paste the ID shown under the app name. Client ID alone is enough.' },
+    { key: 'redditClientSecret', label: 'Reddit Client Secret (only for "web app" type)', type: 'password', hint: 'Leave blank for an "installed app". Only needed if you registered a "web app".' }
   ]},
   { group: 'Twitch', fields: [
     { key: 'twitchClientId', label: 'Twitch Client ID', type: 'text', hint: 'Create an app at <a href="https://dev.twitch.tv/console/apps">dev.twitch.tv/console/apps</a>' },
