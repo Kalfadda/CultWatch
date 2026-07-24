@@ -10,6 +10,8 @@
  * Each alert: { type, title, body, urgency: 'normal'|'critical', url, ts }.
  */
 
+const { attribute, describeCauses } = require('./attribution');
+
 const DEFAULT_ALERTS = {
   enabled: true,
   sound: true,
@@ -26,7 +28,11 @@ const DEFAULT_ALERTS = {
   reviewsOnlyNegative: false,
   scoreBandChange: true,
   bigStreams: true,
-  bigStreamViewers: 500
+  bigStreamViewers: 500,
+  complaintSurge: true,
+  complaintSurgeMin: 5,
+  complaintSurgeMult: 3,
+  complaintCooldownHr: 6
 };
 
 const DEFAULT_STATE = {
@@ -39,7 +45,8 @@ const DEFAULT_STATE = {
   reviewsInitialized: false,
   lastReviewTotal: null,
   lastScoreDesc: null,
-  alertedStreams: []
+  alertedStreams: [],
+  themeAlerts: {}
 };
 
 function storePage(next) {
@@ -49,12 +56,21 @@ function storePage(next) {
 
 function evaluate(prev, next, stateIn, cfgIn, now = Date.now()) {
   const cfg = { ...DEFAULT_ALERTS, ...(cfgIn || {}) };
-  const state = { ...DEFAULT_STATE, ...(stateIn || {}) };
+  // structuredClone, not a bare spread: DEFAULT_STATE's arrays and objects
+  // would otherwise be shared by reference, and code below push()es into them —
+  // which would quietly mutate the module-level defaults for every later call.
+  const state = { ...structuredClone(DEFAULT_STATE), ...(stateIn || {}) };
   const alerts = [];
   if (!cfg.enabled || !next) return { alerts, state };
 
-  const push = (type, title, body, opts = {}) =>
-    alerts.push({ type, title, body, urgency: opts.urgency || 'normal', url: opts.url || storePage(next), ts: now });
+  const push = (type, title, body, opts = {}) => {
+    const alert = { type, title, body, urgency: opts.urgency || 'normal', url: opts.url || storePage(next), ts: now };
+    if (opts.causes) {
+      alert.causes = opts.causes;
+      alert.body = `${body} ${describeCauses(opts.causes)}`;
+    }
+    alerts.push(alert);
+  };
 
   const players = next.players || {};
   const cur = players.available ? players.current : null;
@@ -105,8 +121,15 @@ function evaluate(prev, next, stateIn, cfgIn, now = Date.now()) {
         const cooldownOk = now - (state.lastSpikeTs || 0) > (cfg.spikeCooldownMin || 4) * 60000;
         if (big && cooldownOk && Math.abs(pct) >= (cfg.spikePct || 40)) {
           state.lastSpikeTs = now;
-          if (pct > 0) push('spike-up', `⚡ Player surge +${Math.round(pct)}%`, `Players jumped from ${fmt(prevPt.v)} to ${fmt(last.v)}. A stream or feature may be driving traffic.`);
-          else push('spike-down', `🔻 Player drop ${Math.round(pct)}%`, `Players fell from ${fmt(prevPt.v)} to ${fmt(last.v)}. Check for outages or a crash spike.`, { urgency: 'critical' });
+          // Name the likely driver so the alert answers its own question.
+          const causes = attribute({ t: now, direction: pct > 0 ? 'up' : 'down' }, next);
+          if (pct > 0) {
+            push('spike-up', `⚡ Player surge +${Math.round(pct)}%`,
+              `Players jumped from ${fmt(prevPt.v)} to ${fmt(last.v)}.`, { causes });
+          } else {
+            push('spike-down', `🔻 Player drop ${Math.round(pct)}%`,
+              `Players fell from ${fmt(prevPt.v)} to ${fmt(last.v)}.`, { urgency: 'critical', causes });
+          }
         }
       }
     }
@@ -151,6 +174,27 @@ function evaluate(prev, next, stateIn, cfgIn, now = Date.now()) {
       state.lastScoreDesc = reviews.scoreDesc;
     }
     state.lastReviewTotal = reviews.total;
+  }
+
+  // --- Complaint surge: one review theme spiking in the last 24h ---
+  // Uses the 24h window (the UI's arrow uses 48h) so a post-patch regression is
+  // caught the same day. Both windows come from the same analysis pass, so the
+  // panel and the alert can't disagree about what "surging" means.
+  if (cfg.complaintSurge && next.reviewIntel && Array.isArray(next.reviewIntel.themes)) {
+    const cooldownMs = (cfg.complaintCooldownHr || 6) * 3600000;
+    const min = cfg.complaintSurgeMin || 5;
+    const mult = cfg.complaintSurgeMult || 3;
+    state.themeAlerts = { ...(state.themeAlerts || {}) };
+    for (const th of next.reviewIntel.themes) {
+      if (!th || !th.key) continue;
+      const last24 = th.last24 || 0;
+      if (last24 < min || last24 < mult * Math.max(th.prior24 || 0, 1)) continue;
+      if (now - (state.themeAlerts[th.key] || 0) < cooldownMs) continue;
+      state.themeAlerts[th.key] = now;
+      push('complaint-surge', `⚠️ "${th.label}" complaints surging`,
+        `${last24} negative reviews mentioning ${String(th.label).toLowerCase()} in the last 24h (was ${th.prior24 || 0} the day before).`,
+        { urgency: 'critical' });
+    }
   }
 
   // --- Big Twitch streams picking up the game ---

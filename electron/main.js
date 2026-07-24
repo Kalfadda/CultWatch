@@ -5,6 +5,9 @@ const path = require('path');
 const { Store } = require('./config');
 const { collect } = require('./poller');
 const { evaluate } = require('./alerts');
+const { segments } = require('./history');
+const { backfillReviews, formatTaxonomy, DEFAULT_TAXONOMY } = require('./reviews');
+const steam = require('./services/steam');
 
 let win = null;
 let store = null;
@@ -16,6 +19,9 @@ let updateTimer = null;
 let autoUpdater = null;
 
 const isDev = process.argv.includes('--dev');
+// Dev convenience: boot straight into the Trends view instead of clicking to it
+// on every reload. `npm run dev:trends`.
+const startView = process.argv.includes('--trends') ? 'trends' : 'live';
 
 function createWindow() {
   win = new BrowserWindow({
@@ -37,7 +43,20 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
-  if (isDev) win.webContents.openDevTools({ mode: 'detach' });
+  if (startView === 'trends') {
+    win.webContents.once('did-finish-load', () => {
+      // Small delay so the first snapshot has landed and there is data to draw.
+      setTimeout(() => win.webContents.executeJavaScript("setView('trends')").catch(() => {}), 1200);
+    });
+  }
+  if (isDev) {
+    win.webContents.openDevTools({ mode: 'detach' });
+    // Surface renderer errors in the terminal — otherwise a broken panel just
+    // renders blank and you have to go looking for the devtools window.
+    win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+      if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`);
+    });
+  }
 
   // Open external links in the system browser, never in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -54,6 +73,13 @@ async function runPoll(reason = 'timer') {
   try {
     const snapshot = await collect(store);
     lastSnapshot = snapshot;
+    // Steam announcements are timeline events too — they explain shapes in the
+    // player curve that alerts alone never would.
+    if (Array.isArray(snapshot.news)) {
+      store.eventLog.add(snapshot.news
+        .filter((n) => n.date)
+        .map((n) => ({ t: n.date, type: 'news', title: n.title, url: n.url, key: `news:${n.id}` })));
+    }
     send('data-update', snapshot);
     fireAlerts(prev, snapshot);
     return snapshot;
@@ -113,6 +139,11 @@ function fireAlerts(prev, snapshot) {
   store.setAlertState(result.state);
   if (!result.alerts.length) return;
 
+  // alerts.js is pure — persisting the timeline is the caller's job.
+  store.eventLog.add(result.alerts.map((a) => ({
+    t: a.ts, type: a.type, title: a.title, url: a.url, key: `${a.type}:${a.ts}`
+  })));
+
   // Always log to the in-app alert center.
   send('alerts', result.alerts);
 
@@ -133,15 +164,65 @@ function fireAlerts(prev, snapshot) {
   }
 }
 
+/**
+ * One-time historical review backfill. Steam paginates the full corpus in a
+ * handful of requests, so the complaint clustering starts with real data
+ * instead of only what happens to arrive after this build is installed.
+ * Non-fatal: a failure just leaves the store ingesting incrementally.
+ */
+async function runBackfill() {
+  if (store.reviewStore.backfilledAt()) return;
+  try {
+    const cfg = store.get();
+    const res = await backfillReviews(
+      store.reviewStore,
+      cfg.appId,
+      (appId, cursor) => steam.getReviewsPage(appId, cursor)
+    );
+    console.log(`[backfill] ${res.added} historical reviews in ${res.pages} page(s)`);
+    if (res.added) runPoll('backfill');
+  } catch (err) {
+    console.error('[backfill] failed (non-fatal):', err.message);
+  }
+}
+
 function registerIpc() {
-  ipcMain.handle('get-config', () => store.get());
+  // defaultTaxonomyText is computed, not stored — it gives the Settings
+  // textarea a placeholder showing the built-in themes to copy and edit.
+  ipcMain.handle('get-config', () => ({
+    ...store.get(),
+    defaultTaxonomyText: formatTaxonomy(DEFAULT_TAXONOMY)
+  }));
+
+  // Served on demand rather than pushed with every snapshot — the medium tier
+  // is thousands of points and has no business crossing IPC once a minute.
+  ipcMain.handle('get-series', (_e, range) => {
+    const cfg = store.get();
+    const pollMs = Math.max(15, Number(cfg.refreshIntervalSec) || 60) * 1000;
+    const now = Date.now();
+    let points, tier, maxGapMs;
+    if (range === '7d' || range === 'all') {
+      tier = 'medium';
+      maxGapMs = 3 * 5 * 60 * 1000;
+      const rows = store.series.getMedium();
+      const cutoff = range === '7d' ? now - 7 * 86400000 : -Infinity;
+      points = rows.filter((r) => r.t >= cutoff).map((r) => ({ t: r.t, v: r.max }));
+    } else {
+      tier = 'fine';
+      maxGapMs = 3 * pollMs;
+      points = store.series.getFine();
+    }
+    return { tier, range: range || '24h', points, segments: segments(points, maxGapMs), maxGapMs };
+  });
 
   ipcMain.handle('update-config', (_e, patch) => {
     const next = store.update(patch || {});
     scheduleNext(); // interval may have changed
     // Refresh immediately so credential/keyword changes take effect now.
     runPoll('config-change');
-    return next;
+    // Same shape as get-config, so the renderer's cached config keeps the
+    // computed placeholder after a save.
+    return { ...next, defaultTaxonomyText: formatTaxonomy(DEFAULT_TAXONOMY) };
   });
 
   ipcMain.handle('refresh-now', () => runPoll('manual'));
@@ -190,6 +271,7 @@ app.whenReady().then(() => {
   createWindow();
   setupUpdater();
   runPoll('startup');
+  runBackfill();
   scheduleNext();
 
   app.on('activate', () => {

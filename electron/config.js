@@ -3,12 +3,19 @@
 const fs = require('fs');
 const path = require('path');
 const { DEFAULT_ALERTS } = require('./alerts');
+const { readJson, writeJson } = require('./atomic');
+const { Series } = require('./history');
+const { ReviewStore } = require('./reviews');
+const { EventLog } = require('./events');
 
 /**
  * Tiny zero-dependency JSON config + persistence store.
  * Lives in Electron's per-user data directory so it survives updates and
- * never gets committed to the repo. Also persists the rolling player-count
- * history so the launch-day chart survives app restarts.
+ * never gets committed to the repo.
+ *
+ * The store owns config and alert bookkeeping directly, and composes the three
+ * larger data sets — the tiered player series, the review corpus and the event
+ * log — each of which owns its own file and interface.
  */
 
 const DEFAULTS = {
@@ -28,6 +35,22 @@ const DEFAULTS = {
   ],
   // Exact Twitch category/game name (must match Steam->Twitch listing).
   twitchGameName: "Happy's Humble Burger Cult",
+
+  // --- Peer benchmark ---
+  // Keyless: the same public GetNumberOfCurrentPlayers endpoint we use for our
+  // own CCU. Night of the Consumers is deliberately absent — it reports no live
+  // player data (result 42), so it would only ever render as an empty row.
+  peers: [
+    { appId: '1433340', name: "Happy's Humble Burger Farm" },
+    { appId: '1295920', name: 'The Mortuary Assistant' },
+    { appId: '2916430', name: 'Fast Food Simulator' },
+    { appId: '4121170', name: 'Fears to Fathom: Scratch Creek' },
+    { appId: '2881650', name: 'Content Warning' }
+  ],
+
+  // Complaint taxonomy for clustering negative reviews, as "Label: kw, kw"
+  // lines. null means "use the built-in DEFAULT_TAXONOMY".
+  reviewTaxonomy: null,
 
   // --- Credentials (optional; unlock extra sources) ---
   steamApiKey: '',
@@ -50,7 +73,8 @@ const DEFAULTS = {
     web: true,
     twitch: true,
     youtube: true,
-    x: true
+    x: true,
+    peers: true
   }
 };
 
@@ -58,19 +82,14 @@ class Store {
   constructor(userDataDir) {
     this.dir = userDataDir;
     this.file = path.join(userDataDir, 'cultwatch-config.json');
-    this.historyFile = path.join(userDataDir, 'cultwatch-history.json');
     this.alertStateFile = path.join(userDataDir, 'cultwatch-alertstate.json');
     this.data = this._load();
-    this.history = this._loadHistory();
-    this.alertState = this._loadJson(this.alertStateFile, {});
-  }
+    this.alertState = readJson(this.alertStateFile, {});
 
-  _loadJson(file, fallback) {
-    try {
-      return JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch {
-      return fallback;
-    }
+    // Composed data sets — each owns its own file and interface.
+    this.series = new Series(userDataDir, { maxFine: this.data.historyMaxPoints });
+    this.reviewStore = new ReviewStore(userDataDir);
+    this.eventLog = new EventLog(userDataDir);
   }
 
   getAlertState() {
@@ -79,29 +98,12 @@ class Store {
 
   setAlertState(state) {
     this.alertState = state || {};
-    try {
-      fs.writeFileSync(this.alertStateFile, JSON.stringify(this.alertState));
-    } catch (err) {
-      console.error('[config] failed to persist alert state', err);
-    }
+    writeJson(this.alertStateFile, this.alertState);
   }
 
   _load() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return deepMerge(structuredClone(DEFAULTS), raw);
-    } catch {
-      return structuredClone(DEFAULTS);
-    }
-  }
-
-  _loadHistory() {
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
-      return Array.isArray(raw) ? raw : [];
-    } catch {
-      return [];
-    }
+    const raw = readJson(this.file, null);
+    return raw ? deepMerge(structuredClone(DEFAULTS), raw) : structuredClone(DEFAULTS);
   }
 
   get() {
@@ -110,37 +112,27 @@ class Store {
 
   update(patch) {
     this.data = deepMerge(this.data, patch || {});
-    try {
-      fs.mkdirSync(this.dir, { recursive: true });
-      fs.writeFileSync(this.file, JSON.stringify(this.data, null, 2));
-    } catch (err) {
-      console.error('[config] failed to persist', err);
-    }
+    fs.mkdirSync(this.dir, { recursive: true });
+    writeJson(this.file, this.data);
     return this.get();
   }
 
+  // --- Player history (delegates to the tiered series) ---
+
   getHistory() {
-    return this.history.slice();
+    return this.series.getFine();
   }
 
-  pushHistory(point, maxPoints) {
-    this.history.push(point);
-    const cap = maxPoints || this.data.historyMaxPoints || 2880;
-    if (this.history.length > cap) {
-      this.history = this.history.slice(this.history.length - cap);
-    }
-    try {
-      fs.writeFileSync(this.historyFile, JSON.stringify(this.history));
-    } catch (err) {
-      console.error('[config] failed to persist history', err);
-    }
+  pushHistory(point, maxPoints, peers) {
+    if (maxPoints) this.series.maxFine = maxPoints;
+    this.series.push(point, peers);
   }
 
+  /** Clears player history and the event timeline. The review corpus survives —
+   *  it is not player history, and re-backfilling it would be wasteful. */
   clearHistory() {
-    this.history = [];
-    try {
-      fs.writeFileSync(this.historyFile, '[]');
-    } catch {}
+    this.series.clear();
+    this.eventLog.clear();
   }
 }
 

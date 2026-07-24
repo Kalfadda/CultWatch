@@ -1,7 +1,7 @@
 {
   "name": "cultwatch",
   "productName": "CultWatch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Live launch-day situation room for Happy's Humble Burger Cult",
   "main": "electron/main.js",
   "author": "Scythe Dev Team",
@@ -10,7 +10,9 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "check": "node scripts/test-alerts.js && node scripts/selftest.js",
+    "dev:trends": "electron . --dev --trends",
+    "check": "npm run test:unit && node scripts/selftest.js",
+    "test:unit": "node scripts/test-alerts.js && node scripts/test-history.js && node scripts/test-reviews.js && node scripts/test-attribution.js",
     "test:alerts": "node scripts/test-alerts.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",

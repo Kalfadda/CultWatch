@@ -24,6 +24,11 @@
         <div class="ls-value" id="countdown">—</div>
       </div>
 
+      <div class="view-switch" id="viewSwitch">
+        <button class="vs-btn active" data-view="live" title="Today's situation room">LIVE</button>
+        <button class="vs-btn" data-view="trends" title="Day-over-day, complaints, peers">TRENDS</button>
+      </div>
+
       <div class="topbar-right">
         <div class="conn" id="sourceStatus" title="Source health"></div>
         <div class="updated">
@@ -52,8 +57,8 @@
       </div>
     </header>
 
-    <!-- ===== Main dashboard ===== -->
-    <main class="board" id="board">
+    <!-- ===== Main dashboard (LIVE) ===== -->
+    <main class="board" id="boardLive">
       <!-- KPI row -->
       <section class="kpis" id="kpis"></section>
 
@@ -121,6 +126,64 @@
       </footer>
     </main>
 
+    <!-- ===== Trends dashboard ===== -->
+    <main class="board hidden" id="boardTrends">
+      <section class="kpis" id="trendKpis"></section>
+
+      <section class="panel chart-panel">
+        <div class="panel-head">
+          <h2>Player History</h2>
+          <div class="panel-tools">
+            <span class="chip" id="trendTierChip"></span>
+            <div class="tabs" id="trendRange">
+              <button class="tab active" data-range="24h">24h</button>
+              <button class="tab" data-range="7d">7d</button>
+              <button class="tab" data-range="all">All</button>
+            </div>
+          </div>
+        </div>
+        <div class="chart-wrap" id="trendChart"></div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Peak by Day</h2>
+            <div class="panel-tools"><span class="chip" id="retentionChip">—</span></div>
+          </div>
+          <div class="day-bars" id="dayBars"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Top Complaints</h2>
+            <div class="panel-tools"><span class="chip" id="complaintChip">—</span></div>
+          </div>
+          <div class="panel-body" id="complaints"></div>
+        </div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head"><h2>Review Velocity &amp; Sentiment</h2></div>
+          <div class="panel-body" id="velocityPanel"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Peer Benchmark</h2>
+            <div class="panel-tools"><span class="chip" id="peerChip">—</span></div>
+          </div>
+          <div class="panel-body" id="peerPanel"></div>
+        </div>
+      </section>
+
+      <footer class="board-foot">
+        <span id="trendFoot"></span>
+        <span class="foot-brand">history before this build was installed is not recoverable</span>
+      </footer>
+    </main>
+
     <!-- ===== Settings drawer ===== -->
     <div class="drawer-scrim" id="drawerScrim"></div>
     <aside class="drawer" id="settingsDrawer" aria-hidden="true">
@@ -138,6 +201,8 @@
 
     <div class="toast" id="toast"></div>
 
+    <!-- trends.js first: app.js calls boot() at end of file. -->
+    <script src="trends.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

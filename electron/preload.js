@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('cultwatch', {
   updateConfig: (patch) => ipcRenderer.invoke('update-config', patch),
   refreshNow: () => ipcRenderer.invoke('refresh-now'),
   getSnapshot: () => ipcRenderer.invoke('get-snapshot'),
+  getSeries: (range) => ipcRenderer.invoke('get-series', range),
   clearHistory: () => ipcRenderer.invoke('clear-history'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   openStorePage: () => ipcRenderer.invoke('open-store-page'),

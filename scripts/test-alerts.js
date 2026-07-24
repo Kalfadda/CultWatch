@@ -104,5 +104,55 @@ const cfg = { ...DEFAULT_ALERTS };
   ok('disabled engine emits nothing', r.alerts.length === 0);
 }
 
+// 9. Spike alerts carry attribution
+{
+  const T = 1700000000000;
+  const st = { launched: true, peakAlerted: 1000, lastMilestone: 1000000 };
+  const next = snap({
+    players: { current: 300, available: true, peakSession: 1000, history: [{ t: 1, v: 100 }, { t: 2, v: 300 }] },
+    twitch: { enabled: true, live: [{ id: 's9', user: 'Northernlion', viewers: 12400, title: 'burgers', url: 'https://twitch.tv/nl', startedAt: T - 8 * 60000 }] }
+  });
+  const r = evaluate(snap({}), next, st, cfg, T);
+  const spike = r.alerts.find((a) => a.type === 'spike-up');
+  ok('spike alert carries causes', spike && Array.isArray(spike.causes) && spike.causes.length > 0);
+  ok('spike body names the likely cause', spike && /Northernlion/.test(spike.body));
+
+  // A drop with nothing to blame must say so rather than invent a cause.
+  const drop = evaluate(snap({}), snap({
+    players: { current: 100, available: true, peakSession: 1000, history: [{ t: 1, v: 300 }, { t: 2, v: 100 }] }
+  }), { ...st, lastSpikeTs: 0 }, cfg, T + 1000);
+  const down = drop.alerts.find((a) => a.type === 'spike-down');
+  ok('unattributed drop says no clear cause', down && /no clear cause/i.test(down.body));
+}
+
+// 10. Complaint surge
+{
+  const T = 1700000000000;
+  const themes = [{ key: 'crash', label: 'Crashes', count: 12, last24: 10, prior24: 2, recent48: 12, prior48: 2, trend: 6 }];
+  const st = { launched: true, reviewsInitialized: true, seenReviewIds: [] };
+  const r = evaluate(null, snap({ reviewIntel: { themes } }), st, cfg, T);
+  ok('complaint surge fires', types(r.alerts).includes('complaint-surge'));
+  ok('complaint surge is critical', r.alerts.some((a) => a.type === 'complaint-surge' && a.urgency === 'critical'));
+  ok('complaint surge names the theme', r.alerts.some((a) => a.type === 'complaint-surge' && a.title.includes('Crashes')));
+
+  const r2 = evaluate(null, snap({ reviewIntel: { themes } }), r.state, cfg, T + 60000);
+  ok('complaint surge respects cooldown', !types(r2.alerts).includes('complaint-surge'));
+  const r3 = evaluate(null, snap({ reviewIntel: { themes } }), r.state, cfg, T + 7 * 3600000);
+  ok('complaint surge fires again after cooldown', types(r3.alerts).includes('complaint-surge'));
+
+  const quiet = [{ key: 'crash', label: 'Crashes', count: 4, last24: 3, prior24: 2, recent48: 4, prior48: 2, trend: 2 }];
+  ok('small complaint counts do not surge',
+    !types(evaluate(null, snap({ reviewIntel: { themes: quiet } }), { launched: true }, cfg, T).alerts).includes('complaint-surge'));
+
+  const flat = [{ key: 'crash', label: 'Crashes', count: 40, last24: 10, prior24: 9, recent48: 20, prior48: 20, trend: 1 }];
+  ok('a steady complaint level does not surge',
+    !types(evaluate(null, snap({ reviewIntel: { themes: flat } }), { launched: true }, cfg, T).alerts).includes('complaint-surge'));
+
+  ok('complaint surge can be disabled',
+    !types(evaluate(null, snap({ reviewIntel: { themes } }), { launched: true }, { ...cfg, complaintSurge: false }, T).alerts).includes('complaint-surge'));
+  ok('missing reviewIntel does not throw',
+    evaluate(null, snap({ players: players(10) }), { launched: true }, cfg, T).alerts != null);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
