@@ -79,6 +79,30 @@ async function getCurrentPlayers(appId, apiKey) {
   return { available: false, count: null, result: r.result != null ? r.result : null };
 }
 
+function mapReviews(list) {
+  return (list || []).map((r) => ({
+    id: r.recommendationid,
+    author: r.author ? String(r.author.steamid).slice(-6) : '—',
+    votedUp: r.voted_up,
+    text: (r.review || '').replace(/\s+/g, ' ').trim(),
+    hoursPlayed: r.author && r.author.playtime_forever ? Math.round(r.author.playtime_forever / 60) : null,
+    votesUp: r.votes_up || 0,
+    timestamp: r.timestamp_created ? r.timestamp_created * 1000 : null,
+    language: r.language
+  }));
+}
+
+/**
+ * One page of reviews plus the cursor for the next. Used by the one-time
+ * historical backfill — the regular poll only ever needs the newest page.
+ */
+async function getReviewsPage(appId, cursor = '*', perPage = 100) {
+  const url = `${STORE}/appreviews/${appId}?json=1&language=all&purchase_type=all&filter=recent` +
+    `&num_per_page=${perPage}&cursor=${encodeURIComponent(cursor)}`;
+  const json = await getJson(url);
+  return { reviews: mapReviews(json.reviews), cursor: json.cursor || null };
+}
+
 async function getReviews(appId) {
   // Summary + a page of recent reviews in one shot.
   const summaryUrl = `${STORE}/appreviews/${appId}?json=1&language=all&purchase_type=all&num_per_page=0`;
@@ -95,16 +119,7 @@ async function getReviews(appId) {
   const negative = q.total_negative || 0;
   const positivePct = total > 0 ? Math.round((positive / total) * 100) : null;
 
-  const recent = (recentJson.reviews || []).map((r) => ({
-    id: r.recommendationid,
-    author: r.author ? String(r.author.steamid).slice(-6) : '—',
-    votedUp: r.voted_up,
-    text: (r.review || '').replace(/\s+/g, ' ').trim(),
-    hoursPlayed: r.author && r.author.playtime_forever ? Math.round(r.author.playtime_forever / 60) : null,
-    votesUp: r.votes_up || 0,
-    timestamp: r.timestamp_created ? r.timestamp_created * 1000 : null,
-    language: r.language
-  }));
+  const recent = mapReviews(recentJson.reviews);
 
   return {
     score: q.review_score || 0,
@@ -132,4 +147,4 @@ async function getNews(appId, count = 10) {
   }));
 }
 
-module.exports = { getAppDetails, getCurrentPlayers, getReviews, getNews, stripBB };
+module.exports = { getAppDetails, getCurrentPlayers, getReviews, getReviewsPage, getNews, stripBB };
