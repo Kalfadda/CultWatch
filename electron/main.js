@@ -9,6 +9,23 @@ const { segments } = require('./history');
 const { backfillReviews, formatTaxonomy, DEFAULT_TAXONOMY } = require('./reviews');
 const steam = require('./services/steam');
 
+/**
+ * Never let a failed write to stdout/stderr take down the app.
+ *
+ * If the app is launched with its output piped somewhere that goes away (a
+ * wrapper script, a closed console window from CultWatch.bat), the next
+ * console.log raises EPIPE. Node turns an unhandled stream 'error' into an
+ * uncaught exception, which Electron surfaces as a "JavaScript error occurred
+ * in the main process" dialog — a logging failure should never be fatal to a
+ * monitoring tool. Attaching a listener keeps it scoped to these two streams
+ * and leaves all other error handling exactly as it was.
+ */
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err) => {
+    if (err && (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED')) return;
+  });
+}
+
 let win = null;
 let store = null;
 let pollTimer = null;
