@@ -48,6 +48,19 @@ const NOW = new Date('2026-07-24T12:00:00Z').getTime();
   ok('non-english returns no themes', c('el juego se bloquea', 'spanish').themes.length === 0);
   ok('missing text does not throw', c(null).themes.length === 0);
   ok('missing language is treated as english', classify('it crashes', null, DEFAULT_TAXONOMY).english === true);
+
+  // Themes below were derived from this game's real negative reviews; the
+  // phrasings are taken verbatim from them.
+  ok('microstutters count as performance (no leading word boundary)',
+    c('Performance is not stable, many microstutters').themes.includes('performance'));
+  ok('detects tutorial / clarity complaints', c('poorly explained objectives, fix the tutorial').themes.includes('onboarding'));
+  ok('detects solo-balance complaints', c('Not playable solo as described on the store page').themes.includes('solo'));
+  ok('detects gameplay-loop complaints', c('boring gameplay loop, gets stale quick').themes.includes('loop'));
+  ok('detects polish complaints', c('Game needs to be put back in the oven').themes.includes('polish'));
+  ok('detects unfavourable comparison to the predecessor', c('Poor follow up to the first game').themes.includes('sequel'));
+  ok('detects griefing complaints', c('Game needs a kick system, griefers are persistent').themes.includes('griefing'));
+  ok('detects high-pitched audio complaints', c('Godawful high pitched sound in the lobby').themes.includes('audio'));
+  ok('detects UI complaints', c('disgustingly ugly UI and bad UX').themes.includes('ui'));
 }
 
 // ============================================================

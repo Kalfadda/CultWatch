@@ -1,12 +1,13 @@
 'use strict';
 
-/* global cultwatch */
+/* global cultwatch, initTrends, renderTrends */
 
 // ============================================================
 // State
 // ============================================================
 let snapshot = null;
 let config = null;
+let currentView = 'live';
 let feedFilter = 'all';
 let mediaFilter = 'all';
 let countdownTimer = null;
@@ -54,6 +55,7 @@ async function boot() {
   else renderSkeleton();
   buildSettings();
   wireUi();
+  initTrends();
   startCountdown();
 
   cultwatch.onDataUpdate((snap) => {
@@ -95,6 +97,17 @@ function render(s) {
   renderSourceStatus(s);
   renderFoot(s);
   updateCountdown();
+  if (currentView === 'trends') renderTrends(s);
+}
+
+// ---- View switching (Live board stays exactly as it was) ----
+function setView(v) {
+  currentView = v;
+  el('boardLive').classList.toggle('hidden', v !== 'live');
+  el('boardTrends').classList.toggle('hidden', v !== 'trends');
+  el('viewSwitch').querySelectorAll('.vs-btn')
+    .forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+  if (v === 'trends' && snapshot) renderTrends(snapshot);
 }
 
 function timeOfDay(ms) {
@@ -536,6 +549,14 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'X / Twitter (optional)', fields: [
     { key: 'xBearerToken', label: 'X API Bearer token', type: 'password', hint: 'Requires a paid X API tier. Bluesky covers free social.' }
+  ]},
+  { group: 'Peer benchmark', fields: [
+    { key: 'peers', label: 'Peer games — one "appId: Name" per line', type: 'lines',
+      hint: 'Keyless: uses the same public player-count endpoint as your own game. A title that reports no live players shows as "no data" rather than an error.' }
+  ]},
+  { group: 'Complaint taxonomy', fields: [
+    { key: 'reviewTaxonomy', label: 'Themes — one "Label: keyword, keyword" per line', type: 'textarea',
+      hint: 'Clusters negative reviews. Leave blank for the built-in set. Keywords match literally (English reviews only).' }
   ]}
 ];
 
@@ -551,10 +572,20 @@ function buildSettings() {
     g.fields.forEach((f) => {
       let val = config ? config[f.key] : '';
       if (f.type === 'list') val = Array.isArray(val) ? val.join(', ') : (val || '');
-      const inputType = f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text';
+      if (f.type === 'lines') {
+        val = Array.isArray(val) ? val.map((p) => `${p.appId}: ${p.name || ''}`).join('\n') : '';
+      }
+      if (f.type === 'textarea') val = val || '';
+
+      const control = (f.type === 'textarea' || f.type === 'lines')
+        ? `<textarea data-key="${f.key}" data-kind="${f.type}" rows="6"
+             placeholder="${esc(f.key === 'reviewTaxonomy' && config ? (config.defaultTaxonomyText || '') : '')}">${esc(val)}</textarea>`
+        : `<input type="${f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text'}"
+             data-key="${f.key}" data-kind="${f.type}" value="${esc(val)}" ${f.type === 'password' ? 'autocomplete="off"' : ''}/>`;
+
       html += `<div class="field">
         <label>${esc(f.label)}</label>
-        <input type="${inputType}" data-key="${f.key}" data-kind="${f.type}" value="${esc(val)}" ${f.type === 'password' ? 'autocomplete="off"' : ''}/>
+        ${control}
         ${f.hint ? `<div class="hint">${f.hint}</div>` : ''}
       </div>`;
     });
@@ -599,11 +630,24 @@ function buildSettings() {
 
 async function saveSettings() {
   const patch = { sources: {} };
-  el('settingsBody').querySelectorAll('input[data-key]').forEach((inp) => {
+  el('settingsBody').querySelectorAll('input[data-key], textarea[data-key]').forEach((inp) => {
     const key = inp.dataset.key, kind = inp.dataset.kind;
     let v = inp.value.trim();
-    if (kind === 'number') v = Math.max(15, parseInt(v, 10) || 60);
-    else if (kind === 'list') v = v.split(',').map((x) => x.trim()).filter(Boolean);
+    if (kind === 'number') {
+      v = Math.max(15, parseInt(v, 10) || 60);
+    } else if (kind === 'list') {
+      v = v.split(',').map((x) => x.trim()).filter(Boolean);
+    } else if (kind === 'lines') {
+      v = v.split('\n').map((line) => {
+        const i = line.indexOf(':');
+        if (i < 0) return null;
+        const appId = line.slice(0, i).trim();
+        const name = line.slice(i + 1).trim();
+        return appId ? { appId, name: name || `App ${appId}` } : null;
+      }).filter(Boolean);
+    } else if (kind === 'textarea') {
+      v = v || null; // blank means "use the built-in set"
+    }
     patch[key] = v;
   });
   el('sourceToggles').querySelectorAll('input[data-src]').forEach((cb) => {
@@ -677,6 +721,11 @@ function wireUi() {
     manualUpdateCheck = true;
     const r = await cultwatch.checkUpdates();
     if (!r.ok) { manualUpdateCheck = false; toast(r.error || 'Update check unavailable', true); }
+  });
+
+  el('viewSwitch').addEventListener('click', (e) => {
+    const b = e.target.closest('.vs-btn');
+    if (b) setView(b.dataset.view);
   });
 
   el('feedTabs').addEventListener('click', (e) => {

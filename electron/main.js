@@ -6,7 +6,7 @@ const { Store } = require('./config');
 const { collect } = require('./poller');
 const { evaluate } = require('./alerts');
 const { segments } = require('./history');
-const { backfillReviews } = require('./reviews');
+const { backfillReviews, formatTaxonomy, DEFAULT_TAXONOMY } = require('./reviews');
 const steam = require('./services/steam');
 
 let win = null;
@@ -171,7 +171,12 @@ async function runBackfill() {
 }
 
 function registerIpc() {
-  ipcMain.handle('get-config', () => store.get());
+  // defaultTaxonomyText is computed, not stored — it gives the Settings
+  // textarea a placeholder showing the built-in themes to copy and edit.
+  ipcMain.handle('get-config', () => ({
+    ...store.get(),
+    defaultTaxonomyText: formatTaxonomy(DEFAULT_TAXONOMY)
+  }));
 
   // Served on demand rather than pushed with every snapshot — the medium tier
   // is thousands of points and has no business crossing IPC once a minute.
@@ -199,7 +204,9 @@ function registerIpc() {
     scheduleNext(); // interval may have changed
     // Refresh immediately so credential/keyword changes take effect now.
     runPoll('config-change');
-    return next;
+    // Same shape as get-config, so the renderer's cached config keeps the
+    // computed placeholder after a save.
+    return { ...next, defaultTaxonomyText: formatTaxonomy(DEFAULT_TAXONOMY) };
   });
 
   ipcMain.handle('refresh-now', () => runPoll('manual'));

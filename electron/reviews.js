@@ -24,17 +24,31 @@ const STORE_VERSION = 1;
 const HOUR = 3600000;
 const DAY = 24 * HOUR;
 
+/**
+ * Tuned against this game's actual negative reviews rather than guessed. Note
+ * that clustering only ever runs over negative reviews, which is why broad
+ * words like "boring" or "confusing" are safe to match here — in a one-star
+ * review they mean what they say.
+ */
 const DEFAULT_TAXONOMY = [
   { key: 'crash', label: 'Crashes', patterns: [/\bcrash/i, /\bfreez/i, /\bhard ?lock/i, /\bblack ?screen/i, /\bwon'?t (?:launch|start|open)/i] },
-  { key: 'performance', label: 'Performance', patterns: [/\bfps\b/i, /\blag(?:g|s|gy|ging)?\b/i, /\bstutter/i, /\bframe ?rate/i, /\boptimi[sz]/i, /\bslow ?down/i] },
-  { key: 'bugs', label: 'Bugs / glitches', patterns: [/\bbug(?:s|gy|ged)?\b/i, /\bglitch/i, /\bbroken\b/i, /\bsoft ?lock/i, /\bstuck (?:in|on|behind)/i] },
+  // No \b before "stutter": "microstutters" is the single most common phrasing.
+  { key: 'performance', label: 'Performance', patterns: [/\bfps\b/i, /\blag(?:g|s|gy|ging)?\b/i, /stutter/i, /\bframe ?rate/i, /\boptimi[sz]/i, /\bslow ?down/i, /\bunstable\b/i, /\bperformance\b/i] },
+  { key: 'bugs', label: 'Bugs / glitches', patterns: [/\bbug(?:s|gy|ged)?\b/i, /\bglitch/i, /\bbroken\b/i, /\bsoft ?lock/i, /\bstuck (?:in|on|behind)/i, /\bjank/i, /\bnot loading\b/i] },
+  { key: 'onboarding', label: 'Tutorial / clarity', patterns: [/\btutorial\b/i, /\bunclear\b/i, /\bconfusing\b/i, /\bpoorly explained\b/i, /\bnot explained\b/i, /\bno (?:real )?explanation\b/i, /\bdon'?t know what to do\b/i, /\bdirections?\b/i, /\bhow to play\b/i] },
+  { key: 'solo', label: 'Solo / singleplayer', patterns: [/\bsolo\b/i, /\bsingle ?player\b/i, /\bplaying alone\b/i, /\bby yourself\b/i, /\bwithout friends\b/i] },
+  { key: 'loop', label: 'Gameplay loop', patterns: [/\bgameplay loop\b/i, /\brepetitive\b/i, /\bboring\b/i, /\bstale\b/i, /\bno (?:real )?progression\b/i, /\bshallow\b/i, /\bgrind(?:y|ing)?\b/i, /\bnot fun\b/i] },
+  { key: 'polish', label: 'Unfinished / polish', patterns: [/\bunfinished\b/i, /\bunpolished\b/i, /\bearly access\b/i, /\bneeds (?:more )?(?:work|time|polish)\b/i, /back in the oven/i, /\bslop+\b/i, /\bhalf.?baked\b/i, /\brushed\b/i, /\bbeta\b/i] },
+  { key: 'griefing', label: 'Griefing / moderation', patterns: [/\bgrief(?:er|ers|ing)?\b/i, /\bkick (?:system|option|button|players?)\b/i, /\btroll(?:s|ing|ers)?\b/i, /\bban(?:ning)? (?:system|players?)\b/i] },
+  { key: 'sequel', label: 'Compared to Burger Farm', patterns: [/\b(?:first|original|previous) game\b/i, /\bburger farm\b/i, /\bpredecessor\b/i, /\bfollow.?up\b/i, /\bthe original\b/i, /\bprequel\b/i] },
   { key: 'saves', label: 'Saves / progress', patterns: [/\bsave (?:file|data|game|s)\b/i, /\blost (?:my )?progress/i, /\bcheckpoint/i, /\bautosave/i] },
   { key: 'controller', label: 'Controller / input', patterns: [/\bcontroller/i, /\bgamepad/i, /\bkeybind/i, /\bremap/i, /\bmouse (?:sens|accel)/i, /\bdead ?zone/i] },
-  { key: 'price', label: 'Price / value', patterns: [/\bprice\b/i, /\bexpensive/i, /\boverpriced/i, /\bnot worth\b/i, /\brefund/i, /\bwait for (?:a )?sale/i] },
+  { key: 'price', label: 'Price / value', patterns: [/\bprice\b/i, /\bexpensive/i, /\boverpriced/i, /\bnot worth\b/i, /\brefund/i, /\bwait for (?:a )?sale/i, /\bwaste of money\b/i] },
   { key: 'length', label: 'Too short', patterns: [/\btoo short\b/i, /\bshort(?:er)? than/i, /\b(?:only|just) \d+ hours?\b/i, /\blacks content/i, /\bno content\b/i] },
-  { key: 'difficulty', label: 'Difficulty', patterns: [/\btoo (?:hard|easy|difficult)\b/i, /\bunfair/i, /\bfrustrating/i, /\bdifficulty (?:spike|curve)/i] },
+  { key: 'difficulty', label: 'Difficulty', patterns: [/\btoo (?:hard|easy|difficult)\b/i, /\bunfair/i, /\bfrustrating/i, /\bdifficulty (?:spike|curve)/i, /\binstant(?:ly)? (?:kill|death|hunt)/i] },
   { key: 'motion', label: 'Motion sickness', patterns: [/\bmotion sick/i, /\bnausea/i, /\bnauseous/i, /\bfov\b/i, /\bhead ?bob/i, /\bmotion blur/i] },
-  { key: 'audio', label: 'Audio', patterns: [/\baudio\b/i, /\bsound (?:bug|issue|glitch|cut)/i, /\bvolume\b/i, /\bmusic (?:loop|cut|bug)/i, /\bno sound\b/i] }
+  { key: 'audio', label: 'Audio', patterns: [/\baudio\b/i, /\bsound (?:bug|issue|glitch|cut|design)/i, /\bvolume\b/i, /\bmusic (?:loop|cut|bug)/i, /\bno sound\b/i, /\bhigh.?pitched\b/i, /\bear.?(?:rape|bleed)\b/i, /\bdeafening\b/i] },
+  { key: 'ui', label: 'UI / UX', patterns: [/\bui\b/i, /\bux\b/i, /\bmenu(?:s)?\b/i, /\binterface\b/i, /\binventory (?:is|was) /i] }
 ];
 
 /** English-only by design — see the module note. */
