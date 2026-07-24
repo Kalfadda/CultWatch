@@ -42,7 +42,8 @@ const DEFAULTS = {
   // player data (result 42), so it would only ever render as an empty row.
   peers: [
     { appId: '1433340', name: "Happy's Humble Burger Farm" },
-    { appId: '1295920', name: 'The Mortuary Assistant' },
+    { appId: '3241660', name: 'R.E.P.O.' },
+    { appId: '3949040', name: 'RV There Yet?' },
     { appId: '2916430', name: 'Fast Food Simulator' },
     { appId: '4121170', name: 'Fears to Fathom: Scratch Creek' },
     { appId: '2881650', name: 'Content Warning' }
@@ -78,6 +79,26 @@ const DEFAULTS = {
   }
 };
 
+/**
+ * Peer line-ups that shipped as the default in earlier versions.
+ *
+ * `peers` is editable in Settings, so once a user saves anything their stored
+ * list wins over DEFAULTS forever. A stored list that still matches one of these
+ * verbatim was never touched, so it is safe to advance to the current default —
+ * anything else is the user's own line-up and is left alone.
+ *
+ * Append a new row here (never edit an old one) whenever DEFAULTS.peers changes.
+ */
+const LEGACY_PEER_SETS = [
+  ['1433340', '1295920', '2916430', '4121170', '2881650'] // <= 1.1.1
+];
+
+function isUntouchedLegacyPeers(list) {
+  if (!Array.isArray(list)) return false;
+  const key = list.map((p) => String((p && p.appId) || '')).join(',');
+  return LEGACY_PEER_SETS.some((set) => set.join(',') === key);
+}
+
 class Store {
   constructor(userDataDir) {
     this.dir = userDataDir;
@@ -103,7 +124,12 @@ class Store {
 
   _load() {
     const raw = readJson(this.file, null);
-    return raw ? deepMerge(structuredClone(DEFAULTS), raw) : structuredClone(DEFAULTS);
+    if (!raw) return structuredClone(DEFAULTS);
+    const data = deepMerge(structuredClone(DEFAULTS), raw);
+    // Idempotent and in-memory — it re-applies each launch until the next save,
+    // so startup stays read-only.
+    if (isUntouchedLegacyPeers(raw.peers)) data.peers = structuredClone(DEFAULTS.peers);
+    return data;
   }
 
   get() {
