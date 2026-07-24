@@ -226,6 +226,11 @@ relaunches. There's also **⚙ Settings → ⬇ Updates** to check on demand.
    `set GH_TOKEN=<your token>` (Windows) / `export GH_TOKEN=…` (mac/Linux).
 3. `npm run release` — builds and publishes to the repo's Releases.
 
+> `build.publish.releaseType` is set to `release`. electron-builder's default is
+> `draft`, and **electron-updater cannot see draft releases** — a drafted release
+> uploads fine, looks correct on GitHub, and reaches nobody. If you ever publish
+> a draft by hand, remember to un-draft it.
+
 Every installed copy picks it up automatically within 6 hours (or on next
 launch). Notes:
 

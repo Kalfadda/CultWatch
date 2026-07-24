@@ -37,7 +37,8 @@
       {
         "provider": "github",
         "owner": "kalfadda",
-        "repo": "cultwatch"
+        "repo": "cultwatch",
+        "releaseType": "release"
       }
     ],
     "files": [
