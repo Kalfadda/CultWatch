@@ -82,7 +82,6 @@ class Store {
   constructor(userDataDir) {
     this.dir = userDataDir;
     this.file = path.join(userDataDir, 'cultwatch-config.json');
-    this.historyFile = path.join(userDataDir, 'cultwatch-history.json');
     this.alertStateFile = path.join(userDataDir, 'cultwatch-alertstate.json');
     this.data = this._load();
     this.alertState = readJson(this.alertStateFile, {});

@@ -1,6 +1,6 @@
 'use strict';
 
-/* global cultwatch, initTrends, renderTrends */
+/* global cultwatch, initTrends, renderTrends, resizeTrendChart */
 
 // ============================================================
 // State
@@ -682,7 +682,12 @@ function wireUi() {
   el('drawerScrim').addEventListener('click', closeDrawer);
   el('saveSettings').addEventListener('click', saveSettings);
   el('clearHistBtn').addEventListener('click', async () => {
-    if (confirm('Clear stored player-count history? The chart resets.')) {
+    if (confirm(
+      'Clear ALL stored player history?\n\n' +
+      'This deletes the rolling chart, the permanent day-by-day rollups and the ' +
+      'event timeline. Steam publishes no historical player data, so none of it ' +
+      'can be recovered.\n\nStored reviews are kept.'
+    )) {
       await cultwatch.clearHistory();
       toast('History cleared');
     }
@@ -744,7 +749,11 @@ function wireUi() {
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (snapshot) renderChart(snapshot); }, 150);
+    resizeTimer = setTimeout(() => {
+      if (!snapshot) return;
+      renderChart(snapshot);
+      resizeTrendChart();
+    }, 150);
   });
 
   document.addEventListener('keydown', (e) => {

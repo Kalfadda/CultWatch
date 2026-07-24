@@ -19,6 +19,9 @@ let updateTimer = null;
 let autoUpdater = null;
 
 const isDev = process.argv.includes('--dev');
+// Dev convenience: boot straight into the Trends view instead of clicking to it
+// on every reload. `npm run dev:trends`.
+const startView = process.argv.includes('--trends') ? 'trends' : 'live';
 
 function createWindow() {
   win = new BrowserWindow({
@@ -40,7 +43,20 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
-  if (isDev) win.webContents.openDevTools({ mode: 'detach' });
+  if (startView === 'trends') {
+    win.webContents.once('did-finish-load', () => {
+      // Small delay so the first snapshot has landed and there is data to draw.
+      setTimeout(() => win.webContents.executeJavaScript("setView('trends')").catch(() => {}), 1200);
+    });
+  }
+  if (isDev) {
+    win.webContents.openDevTools({ mode: 'detach' });
+    // Surface renderer errors in the terminal — otherwise a broken panel just
+    // renders blank and you have to go looking for the devtools window.
+    win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+      if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`);
+    });
+  }
 
   // Open external links in the system browser, never in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {

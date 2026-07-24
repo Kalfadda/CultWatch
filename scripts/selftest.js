@@ -52,6 +52,24 @@ function line(label, ok, detail) {
   soft('twitch');
   soft('youtube');
   soft('x');
+  soft('peers');
+
+  // Derived analysis
+  const pr = snap.peers || { rows: [] };
+  const named = pr.rows.filter((r) => r.available && !r.us).length;
+  line('peer ranking', pr.ourRank != null || !pr.rows.length,
+    pr.ourRank ? `we are #${pr.ourRank} of ${pr.rows.length} (${named} peers reporting)` : 'no player data to rank yet');
+
+  const ri = snap.reviewIntel || { coverage: {}, themes: [] };
+  const cov = ri.coverage || {};
+  line('reviewIntel', !!ri.coverage,
+    `${cov.total || 0} stored · ${cov.english || 0} english · ${(ri.themes || []).length} themes` +
+    ((ri.themes || [])[0] ? ` · top: ${ri.themes[0].label} (${ri.themes[0].count})` : ''));
+
+  const tr = snap.trends || { days: [] };
+  line('trends', Array.isArray(tr.days),
+    `${tr.days.length} day rollup(s)` +
+    (tr.retention ? ` · ${tr.retention.pct}% of ${tr.retention.referenceLabel}` : ' · no reference yet'));
 
   // History persistence check
   const before = store.getHistory().length;
@@ -76,5 +94,6 @@ function count(snap, name) {
   if (name === 'twitch') return (snap.twitch && snap.twitch.live || []).length;
   if (name === 'youtube') return (snap.youtube && snap.youtube.videos || []).length;
   if (name === 'x') return (snap.x && snap.x.posts || []).length;
+  if (name === 'peers') return (snap.peers && snap.peers.rows || []).length;
   return 0;
 }

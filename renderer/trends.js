@@ -1,6 +1,6 @@
 'use strict';
 
-/* global cultwatch, fmt, fmtCompact, esc, el */
+/* global cultwatch, fmt, fmtCompact, esc, el, snapshot, currentView */
 
 /**
  * Trends view — the week-two half of the board.
@@ -36,8 +36,14 @@ function initTrends() {
     trendRange = t.dataset.range;
     trendSeries = null;
     await loadSeries();
-    if (window.__snapshot) renderTrendChart(window.__snapshot);
+    if (snapshot) renderTrendChart(snapshot);
   });
+}
+
+/** Re-draw only the chart (the SVG is sized from its container, so it needs a
+ *  redraw on resize; the rest of the view is CSS-fluid). */
+function resizeTrendChart() {
+  if (currentView === 'trends' && snapshot && trendSeries) renderTrendChart(snapshot);
 }
 
 async function loadSeries() {
@@ -50,7 +56,6 @@ async function loadSeries() {
 }
 
 async function renderTrends(s) {
-  window.__snapshot = s;
   if (!trendSeries || trendSeriesRange !== trendRange) await loadSeries();
   renderTrendKpis(s);
   renderTrendChart(s);
@@ -247,8 +252,10 @@ function renderDayBars(s) {
     return;
   }
 
-  const max = Math.max(...days.map((d) => d.peak || 0), 1);
-  box.innerHTML = days.slice(-30).map((d) => {
+  // Scale to the days actually drawn, or an off-screen outlier flattens them all.
+  const shown = days.slice(-30);
+  const max = Math.max(...shown.map((d) => d.peak || 0), 1);
+  box.innerHTML = shown.map((d) => {
     const h = Math.max(2, Math.round(((d.peak || 0) / max) * 100));
     const cov = Math.round((d.coverage || 0) * 100);
     const isRef = r && d.d === r.referenceDay;

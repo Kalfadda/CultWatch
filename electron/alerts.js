@@ -56,7 +56,10 @@ function storePage(next) {
 
 function evaluate(prev, next, stateIn, cfgIn, now = Date.now()) {
   const cfg = { ...DEFAULT_ALERTS, ...(cfgIn || {}) };
-  const state = { ...DEFAULT_STATE, ...(stateIn || {}) };
+  // structuredClone, not a bare spread: DEFAULT_STATE's arrays and objects
+  // would otherwise be shared by reference, and code below push()es into them —
+  // which would quietly mutate the module-level defaults for every later call.
+  const state = { ...structuredClone(DEFAULT_STATE), ...(stateIn || {}) };
   const alerts = [];
   if (!cfg.enabled || !next) return { alerts, state };
 
