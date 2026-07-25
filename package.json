@@ -21,7 +21,9 @@
     "release": "electron-builder --publish always",
     "mobile:build": "node scripts/build-mobile.js",
     "mobile:sync": "node scripts/build-mobile.js && cd mobile && npx cap sync android",
-    "mobile:apk": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && gradlew.bat assembleDebug"
+    "mobile:apk": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && gradlew.bat assembleRelease",
+    "mobile:apk:debug": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && gradlew.bat assembleDebug",
+    "mobile:layout": "node scripts/check-mobile-layout.js"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
