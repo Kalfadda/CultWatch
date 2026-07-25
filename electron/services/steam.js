@@ -103,6 +103,29 @@ async function getReviewsPage(appId, cursor = '*', perPage = 100) {
   return { reviews: mapReviews(json.reviews), cursor: json.cursor || null };
 }
 
+/** Parses an appreviews `query_summary` block. Pure, so it is shared by the
+ *  full review fetch and the cohort's summary-only fetch. */
+function summarize(json) {
+  const q = (json && json.query_summary) || {};
+  const total = q.total_reviews || 0;
+  const positive = q.total_positive || 0;
+  return {
+    score: q.review_score || 0,
+    scoreDesc: q.review_score_desc || 'No user reviews',
+    total,
+    positive,
+    negative: q.total_negative || 0,
+    positivePct: total > 0 ? Math.round((positive / total) * 100) : null
+  };
+}
+
+/** Summary only — one request, no recent-review page. The cohort needs seven of
+ *  these per poll and would otherwise throw away seven review pages. */
+async function getReviewSummary(appId) {
+  const url = `${STORE}/appreviews/${appId}?json=1&language=all&purchase_type=all&num_per_page=0`;
+  return summarize(await getJson(url));
+}
+
 async function getReviews(appId) {
   // Summary + a page of recent reviews in one shot.
   const summaryUrl = `${STORE}/appreviews/${appId}?json=1&language=all&purchase_type=all&num_per_page=0`;
@@ -113,23 +136,7 @@ async function getReviews(appId) {
     getJson(recentUrl).catch(() => ({ reviews: [] }))
   ]);
 
-  const q = summaryJson.query_summary || {};
-  const total = q.total_reviews || 0;
-  const positive = q.total_positive || 0;
-  const negative = q.total_negative || 0;
-  const positivePct = total > 0 ? Math.round((positive / total) * 100) : null;
-
-  const recent = mapReviews(recentJson.reviews);
-
-  return {
-    score: q.review_score || 0,
-    scoreDesc: q.review_score_desc || 'No user reviews',
-    total,
-    positive,
-    negative,
-    positivePct,
-    recent
-  };
+  return { ...summarize(summaryJson), recent: mapReviews(recentJson.reviews) };
 }
 
 async function getNews(appId, count = 10) {
@@ -147,4 +154,4 @@ async function getNews(appId, count = 10) {
   }));
 }
 
-module.exports = { getAppDetails, getCurrentPlayers, getReviews, getReviewsPage, getNews, stripBB };
+module.exports = { getAppDetails, getCurrentPlayers, getReviews, getReviewSummary, getReviewsPage, getNews, stripBB, summarize };
