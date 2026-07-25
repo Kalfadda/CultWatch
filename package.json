@@ -1,7 +1,7 @@
 {
   "name": "cultwatch",
   "productName": "CultWatch",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Live launch-day situation room for Happy's Humble Burger Cult",
   "main": "electron/main.js",
   "author": "Scythe Dev Team",

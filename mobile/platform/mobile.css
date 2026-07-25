@@ -74,6 +74,42 @@
 /* Long game names must not widen the bar; they ellipse instead. */
 .brand-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The alert center is a 384px dropdown anchored `right: 0` to the bell. On a
+   344px screen it is wider than the viewport, and because it extends leftwards
+   from a bell sitting near the right edge it ran ~100px off the LEFT side — the
+   list was there, just unreachable.
+
+   No amount of width-clamping fixes an anchor that narrow: it has to leave the
+   bell's positioning context entirely. A fixed bottom sheet is always fully on
+   screen whatever the topbar wraps to, and lands under the thumb rather than at
+   the top of a tall phone. */
+@media (max-width: 700px) {
+  /* `backdrop-filter` on an ancestor creates a containing block for
+     position: fixed descendants. The alert sheet lives inside .topbar, so with
+     the blur present "fixed" resolved against the topbar rather than the
+     viewport and the sheet floated off the top of the screen — by 51px at
+     673px wide, where the topbar is short enough not to hide it.
+     The blur is decorative over an already near-opaque gradient, and dropping
+     it on mobile also saves a per-frame compositing pass. */
+  .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+  .alert-center {
+    position: fixed;
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 65vh;
+    border-radius: 14px;
+  }
+  .ac-head { flex-wrap: wrap; gap: 6px 10px; }
+  .ac-tools { flex-wrap: wrap; }
+  /* Comfortably tappable rows, and a list that scrolls rather than clipping. */
+  .ac-item { padding: 12px 11px; }
+  .ac-list { max-height: none; }
+}
+
 /* Panel headers put a title and a tab group on one line. At ~344px the range
    tabs (24h / 7d / All) and the feed tabs pushed ~80px past the right edge —
    measured, not guessed. They must wrap rather than run off. */

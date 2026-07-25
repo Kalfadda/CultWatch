@@ -26,9 +26,23 @@ const ADB = process.env.ADB || 'C:/Users/Kaleb/android-tools/sdk/platform-tools/
 const PKG = 'com.scythedevteam.cultwatch';
 const PORT = 9222;
 
-// Off-canvas by design: the settings drawer sits beyond the right edge until
-// opened, so it is not an overflow bug.
-const OFFCANVAS = ['drawer', 'drawer-scrim', 'alert-center', 'toast'];
+// Off-canvas *while closed* by design. These are skipped in the base pass and
+// then checked properly in their open state — see OVERLAYS below.
+//
+// `alert-center` was originally listed here as "off-canvas by design", which was
+// simply wrong: it is a dropdown that must be fully visible when open. That bad
+// assumption is why this tool reported a clean sweep while the alert panel was
+// hanging ~100px off the left edge of the screen.
+const OFFCANVAS = ['drawer', 'drawer-scrim', 'toast'];
+
+/** Overlays that must be measured opened, since closed they are legitimately
+ *  off-screen and open they must be entirely on it. */
+const OVERLAYS = [
+  { name: 'alert center', open: "document.getElementById('bellBtn').click()",
+    close: "document.getElementById('bellBtn').click()", sel: '#alertCenter' },
+  { name: 'settings drawer', open: "document.getElementById('settingsBtn').click()",
+    close: "document.getElementById('closeSettings').click()", sel: '#settingsDrawer' }
+];
 
 function adb(args) {
   return execFileSync(ADB, args, { encoding: 'utf8', timeout: 30000 });
@@ -180,6 +194,36 @@ const VIEWS = ['live', 'trends', 'tinybuild'];
       const tag = bad ? '\x1b[31mFAIL\x1b[0m' : '\x1b[32mPASS\x1b[0m';
       console.log(`  ${tag}  ${String(width).padStart(4)}px ${view.padEnd(10)} ${label}`);
     }
+
+    // Overlays, measured open — the state in which they must be fully visible.
+    for (const o of OVERLAYS) {
+      await cdp.eval(o.open);
+      await new Promise((r) => setTimeout(r, 350));
+      const box = await cdp.eval(`(() => {
+        const el = document.querySelector(${JSON.stringify(o.sel)});
+        if (!el) return { missing: true };
+        const r = el.getBoundingClientRect();
+        const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+        return { vw, vh,
+          x: Math.round(r.x), right: Math.round(r.right),
+          y: Math.round(r.y), bottom: Math.round(r.bottom),
+          w: Math.round(r.width), h: Math.round(r.height),
+          offLeft: r.left < -1, offRight: r.right > vw + 1,
+          offTop: r.top < -1, offBottom: r.bottom > vh + 1,
+          hidden: getComputedStyle(el).display === 'none' || r.width === 0 };
+      })()`);
+      await cdp.eval(o.close);
+      await new Promise((r) => setTimeout(r, 250));
+
+      const off = box.missing || box.hidden || box.offLeft || box.offRight || box.offTop || box.offBottom;
+      if (off) {
+        fail++;
+        problems.push({ width, label, view: `${o.name} (open)`, overlay: box });
+      }
+      console.log(`  ${off ? '\x1b[31mFAIL\x1b[0m' : '\x1b[32mPASS\x1b[0m'}  ${String(width).padStart(4)}px ` +
+        `${o.name.padEnd(16)} open` +
+        (off && !box.missing ? `  x=${box.x} right=${box.right} vw=${box.vw}` : ''));
+    }
   }
 
   await cdp.send('Emulation.clearDeviceMetricsOverride');
@@ -187,6 +231,15 @@ const VIEWS = ['live', 'trends', 'tinybuild'];
 
   for (const p of problems) {
     console.log(`\n  --- ${p.width}px · ${p.view} ---`);
+    if (p.overlay) {
+      const b = p.overlay;
+      if (b.missing) console.log('      element not found');
+      else if (b.hidden) console.log('      opened but not rendered');
+      else console.log(`      x=${b.x}..${b.right} (viewport 0..${b.vw}), y=${b.y}..${b.bottom} (0..${b.vh})` +
+        `${b.offLeft ? ' OFF-LEFT' : ''}${b.offRight ? ' OFF-RIGHT' : ''}` +
+        `${b.offTop ? ' OFF-TOP' : ''}${b.offBottom ? ' OFF-BOTTOM' : ''}`);
+      continue;
+    }
     if (p.v.overflowX > 0) console.log(`      page scrolls horizontally by ${p.v.overflowX}px`);
     for (const e of p.missing) {
       console.log(`      ${e.sel}: ${e.missing ? 'MISSING' : e.hidden ? 'HIDDEN' : `off-screen (right=${e.right} > ${p.v.vw})`}`);
