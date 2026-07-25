@@ -12,7 +12,7 @@
     "dev": "electron . --dev",
     "dev:trends": "electron . --dev --trends",
     "check": "npm run test:unit && node scripts/selftest.js",
-    "test:unit": "node scripts/test-alerts.js && node scripts/test-history.js && node scripts/test-reviews.js && node scripts/test-attribution.js && node scripts/test-config.js && node scripts/test-tinybuild.js",
+    "test:unit": "node scripts/test-alerts.js && node scripts/test-history.js && node scripts/test-reviews.js && node scripts/test-attribution.js && node scripts/test-config.js && node scripts/test-tinybuild.js && node scripts/test-mobile.js",
     "test:alerts": "node scripts/test-alerts.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",

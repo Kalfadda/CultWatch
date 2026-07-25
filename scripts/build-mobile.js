@@ -143,6 +143,13 @@ function assets() {
   }
   fs.copyFileSync(path.join(ROOT, 'mobile', 'platform', 'mobile.css'), path.join(www, 'mobile.css'));
 
+  // bootstrap.js is a source file, not a generated one — it lives under
+  // mobile/platform/ so that mobile/www/ can stay entirely disposable and
+  // gitignored. It was briefly authored inside www/ and, being ignored, was one
+  // `git clean` away from vanishing.
+  fs.mkdirSync(path.join(www, 'js'), { recursive: true });
+  fs.copyFileSync(path.join(ROOT, 'mobile', 'platform', 'bootstrap.js'), path.join(www, 'js', 'bootstrap.js'));
+
   let html = fs.readFileSync(path.join(ROOT, 'renderer', 'index.html'), 'utf8');
 
   // Without this the WebView renders the desktop layout at desktop width and
