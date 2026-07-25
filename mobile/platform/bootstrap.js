@@ -125,6 +125,10 @@
   const RELEASES_API = 'https://api.github.com/repos/Kalfadda/CultWatch/releases/latest';
   const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
   let pendingApkUrl = null;
+  let pendingApkName = null;
+  let pendingVersion = null;
+  let downloadPoll = null;
+  let downloadReady = false;
 
   /** -1, 0 or 1. Compares dotted numeric versions; missing parts count as 0. */
   function compareVersions(a, b) {
@@ -158,6 +162,12 @@
       }
 
       pendingApkUrl = apk.browser_download_url;
+      pendingApkName = apk.name || `CultWatch-${latest}.apk`;
+      pendingVersion = latest;
+
+      // A periodic re-check must not clobber an in-flight or finished download
+      // by resetting the pill back to "Download APK".
+      if (downloadPoll || downloadReady) return { ok: true, upToDate: false, version: latest };
       // Reuse the 'downloaded' state so the existing pill appears, but relabel
       // the action: nothing has been downloaded, and "Restart" would be a lie.
       emit('update-status', {
@@ -172,10 +182,79 @@
     }
   }
 
+  /**
+   * Polls DownloadManager so the pill shows progress that actually terminates.
+   * A download with no progress source is indistinguishable from a stuck one —
+   * which is exactly how the previous version looked, and was, broken.
+   */
+  function trackDownload(dl, id) {
+    if (downloadPoll) clearInterval(downloadPoll);
+    downloadPoll = setInterval(async () => {
+      let s;
+      try {
+        s = await dl.status({ id: String(id) });
+      } catch (err) {
+        clearInterval(downloadPoll);
+        downloadPoll = null;
+        emit('update-status', { state: 'error', info: { message: err.message || String(err) } });
+        return;
+      }
+
+      if (s.state === 'running' || s.state === 'pending') {
+        emit('update-status', { state: 'downloading', info: { percent: s.percent || 0 } });
+        return;
+      }
+
+      clearInterval(downloadPoll);
+      downloadPoll = null;
+
+      if (s.state === 'success') {
+        downloadReady = true;
+        // Tapping the pill now opens the system Downloads list, where the APK
+        // hands off to Android's package installer.
+        emit('update-status', {
+          state: 'downloaded',
+          info: { version: pendingVersion, actionLabel: 'Install' }
+        });
+      } else if (s.state === 'gone') {
+        emit('update-status', { state: 'downloaded', info: { version: pendingVersion, actionLabel: 'Install' } });
+      } else {
+        emit('update-status', {
+          state: 'error',
+          info: { message: `download ${s.state}${s.reason ? ' (reason ' + s.reason + ')' : ''}` }
+        });
+      }
+    }, 1000);
+  }
+
   async function installUpdate() {
+    // Second tap, once the file is on disk: hand off to the system installer.
+    if (downloadReady) {
+      const dl = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.ApkDownload;
+      if (dl) { await dl.openDownloads(); return { ok: true, via: 'downloads' }; }
+    }
     if (!pendingApkUrl) return { ok: false, error: 'no update pending' };
+
+    // Must NOT go through Browser.open(): a Custom Tab download is owned by a
+    // session that dies with the tab, leaving the file flagged MediaStore
+    // IS_PENDING — fully downloaded, invisible to the installer, and stuck on
+    // "Download pending…" forever. DownloadManager owns the transfer at system
+    // level and publishes it properly.
+    const dl = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.ApkDownload;
+    if (dl) {
+      try {
+        const { id } = await dl.download({ url: pendingApkUrl, fileName: pendingApkName || 'CultWatch-update.apk' });
+        emit('update-status', { state: 'downloading', info: { percent: 0 } });
+        trackDownload(dl, id);
+        return { ok: true, via: 'DownloadManager' };
+      } catch (err) {
+        console.error('[bootstrap] DownloadManager failed, falling back to browser:', err);
+      }
+    }
+
+    // Fallback for a WebView without the plugin (e.g. `npm run mobile:serve`).
     await window.cultwatch.openExternal(pendingApkUrl);
-    return { ok: true };
+    return { ok: true, via: 'browser' };
   }
 
   function scheduleNext() {
