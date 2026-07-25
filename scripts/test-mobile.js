@@ -83,12 +83,36 @@ ok('app.js loads last', srcs[srcs.length - 1] === 'app.js');
 // dead — the same silent breakage, just narrower.
 {
   const boot = fs.readFileSync(path.join(WWW, 'js', 'bootstrap.js'), 'utf8');
+
+  // Look only *inside* the bridge literal. Scanning the whole file would happily
+  // match a same-named local function that is never actually exposed, which is a
+  // false pass on the one thing this check exists to catch.
+  const start = boot.indexOf('window.cultwatch = {');
+  let depth = 0, end = -1;
+  for (let i = boot.indexOf('{', start); i < boot.length; i++) {
+    if (boot[i] === '{') depth++;
+    else if (boot[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  const literal = start >= 0 && end > start ? boot.slice(start, end) : '';
+  ok('the bridge literal is parseable', literal.length > 0);
+
+  // Strip comments before reading keys, or a commented line preceding a key
+  // hides it. Only whole-line `//` comments are removed — a mid-line strip would
+  // eat the `https://` in the store URL.
+  const clean = literal
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // Keys at depth 1, covering both `name:` and shorthand `name,`.
+  const keys = new Set();
+  for (const m of clean.matchAll(/(?:^|[{,])\s*([A-Za-z0-9_$]+)\s*(?=[:,}])/gm)) keys.add(m[1]);
+
   const used = new Set();
   for (const f of ['app.js', 'trends.js', 'tinybuild.js']) {
     const src = fs.readFileSync(path.join(WWW, f), 'utf8');
     for (const m of src.matchAll(/cultwatch\.([A-Za-z0-9_$]+)\s*\(/g)) used.add(m[1]);
   }
-  const missing = [...used].filter((m) => !new RegExp(`\\b${m}\\s*:`).test(boot));
+  const missing = [...used].filter((m) => !keys.has(m));
   ok(`bridge implements all ${used.size} methods the renderer calls`, missing.length === 0,
     missing.length ? 'missing: ' + missing.join(', ') : '');
 }

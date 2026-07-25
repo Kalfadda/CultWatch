@@ -185,8 +185,14 @@ Mobile-specific caveats, stated honestly:
 - **`localStorage` is capped at roughly 5 MB.** A full write failure is reported
   rather than swallowed, because silently dropping history would look identical to
   a quiet day.
-- **No auto-update.** The desktop app updates itself; the APK is installed.
-  `checkUpdates` says so instead of pretending otherwise.
+- **Updates are offered, not silently installed.** A sideloaded APK gets none of
+  Play's update machinery, so the app checks GitHub Releases itself — shortly
+  after launch and every 6h — and raises the same update pill the desktop uses.
+  Tapping it hands the APK to Android's own package installer. It deliberately
+  stops there: installing silently would require `REQUEST_INSTALL_PACKAGES` and a
+  `FileProvider`, i.e. the app claiming the right to install packages in the
+  background, which is far more permission than a situation-room dashboard should
+  hold.
 
 ---
 

@@ -113,6 +113,71 @@
     }
   }
 
+  // ============================================================
+  // Updates
+  // ============================================================
+  // A sideloaded APK gets none of Play's update machinery, so the app checks
+  // GitHub Releases itself. It deliberately stops at *offering* the download:
+  // installing silently would need REQUEST_INSTALL_PACKAGES and a FileProvider,
+  // i.e. the app claiming the right to install packages in the background. Handing
+  // the APK to Android's own package installer keeps the user in the loop and the
+  // permission surface small.
+  const RELEASES_API = 'https://api.github.com/repos/Kalfadda/CultWatch/releases/latest';
+  const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+  let pendingApkUrl = null;
+
+  /** -1, 0 or 1. Compares dotted numeric versions; missing parts count as 0. */
+  function compareVersions(a, b) {
+    const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  async function checkUpdates() {
+    const current = window.CULTWATCH_VERSION || '0.0.0';
+    emit('update-status', { state: 'checking', info: null });
+    try {
+      const { getJson } = core('./services/http');
+      const rel = await getJson(RELEASES_API);
+      const latest = String(rel.tag_name || '').replace(/^v/, '');
+      const apk = (rel.assets || []).find((a) => String(a.name || '').endsWith('.apk'));
+
+      if (!latest || compareVersions(latest, current) <= 0) {
+        emit('update-status', { state: 'none', info: { version: current } });
+        return { ok: true, upToDate: true, version: current };
+      }
+      if (!apk) {
+        // A newer release exists but ships no APK — say so rather than offering
+        // a button that cannot do anything.
+        emit('update-status', { state: 'error', info: { message: `v${latest} has no Android build yet` } });
+        return { ok: true, upToDate: false, version: latest, apk: false };
+      }
+
+      pendingApkUrl = apk.browser_download_url;
+      // Reuse the 'downloaded' state so the existing pill appears, but relabel
+      // the action: nothing has been downloaded, and "Restart" would be a lie.
+      emit('update-status', {
+        state: 'downloaded',
+        info: { version: latest, actionLabel: 'Download APK' }
+      });
+      return { ok: true, upToDate: false, version: latest };
+    } catch (err) {
+      const message = err.message || String(err);
+      emit('update-status', { state: 'error', info: { message } });
+      return { ok: false, error: message };
+    }
+  }
+
+  async function installUpdate() {
+    if (!pendingApkUrl) return { ok: false, error: 'no update pending' };
+    await window.cultwatch.openExternal(pendingApkUrl);
+    return { ok: true };
+  }
+
   function scheduleNext() {
     if (timer) clearTimeout(timer);
     const sec = Math.max(15, Number(store.get().refreshIntervalSec) || 60);
@@ -130,6 +195,7 @@
       runPoll('config-change');
       return next;
     },
+
     refreshNow: () => runPoll('manual'),
     getSnapshot: async () => snapshot,
 
@@ -176,9 +242,8 @@
       await notify(a);
       return true;
     },
-    // The APK is installed, not auto-updated. Say so instead of pretending.
-    checkUpdates: async () => ({ supported: false, message: 'Updates are installed manually on Android.' }),
-    installUpdate: async () => ({ supported: false }),
+    checkUpdates,
+    installUpdate,
 
     onDataUpdate: (cb) => subscribe('data-update', cb),
     onPollStart: (cb) => subscribe('poll-start', cb),
@@ -201,4 +266,8 @@
   });
 
   runPoll('startup').then(scheduleNext);
+
+  // Same cadence as the desktop updater: shortly after launch, then every 6h.
+  setTimeout(() => { checkUpdates().catch(() => { /* reported via update-status */ }); }, 8000);
+  setInterval(() => { checkUpdates().catch(() => { /* reported via update-status */ }); }, UPDATE_EVERY_MS);
 })();

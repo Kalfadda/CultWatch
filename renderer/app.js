@@ -915,12 +915,18 @@ function handleUpdateStatus(s) {
       pill.classList.add('downloading');
       text.textContent = `Downloading… ${s.info ? s.info.percent : 0}%`;
       break;
-    case 'downloaded':
+    case 'downloaded': {
+      // The desktop updater has already downloaded the update, so the action is
+      // "Restart". Android only ever *offers* the APK, so it supplies its own
+      // label — promising a restart there would be a lie.
+      const action = (s.info && s.info.actionLabel) || 'Restart';
+      const ver = s.info && s.info.version ? ' v' + s.info.version : '';
       pill.classList.remove('hidden', 'downloading');
-      text.textContent = `Update ready${s.info && s.info.version ? ' v' + s.info.version : ''} — Restart`;
-      toast('✅ Update downloaded — click "Update ready" to restart');
-      handleAlerts([{ type: 'test', title: '⬇ Update ready', body: `A new version of CultWatch${s.info && s.info.version ? ' (v' + s.info.version + ')' : ''} is ready. Restart to install.`, urgency: 'normal', url: '', ts: Date.now() }]);
+      text.textContent = `Update ready${ver} — ${action}`;
+      toast(`✅ Update ${ver.trim() || 'available'} — click "Update ready" to ${action.toLowerCase()}`);
+      handleAlerts([{ type: 'test', title: '⬇ Update ready', body: `A new version of CultWatch${ver ? ' (' + ver.trim() + ')' : ''} is ready — ${action.toLowerCase()} to install.`, urgency: 'normal', url: '', ts: Date.now() }]);
       break;
+    }
     case 'none':
       if (manualUpdateCheck) toast('You are on the latest version ✓');
       break;
