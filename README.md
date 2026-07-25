@@ -76,9 +76,9 @@ ok, red = erroring, hollow = disabled). Hover any dot for detail and latency.
 
 ---
 
-## The two views: LIVE and TRENDS
+## The three views: LIVE, TRENDS and TINYBUILD
 
-The top bar has a **`[LIVE] [TRENDS]`** switch.
+The top bar has a **`[LIVE] [TRENDS] [TINYBUILD]`** switch.
 
 **LIVE** is the launch-day situation room described above — what is happening
 right now.
@@ -110,6 +110,30 @@ right now.
 > so the chart can only show what CultWatch itself recorded. On upgrade it
 > rescues whatever the old 48-hour buffer still held, but anything already
 > evicted is gone for good. Keep the app running to keep the record complete.
+
+**TINYBUILD** answers a third question: *how are we doing against the other games
+our publisher shipped this year?* The peer benchmark compares by genre; this
+compares by publisher, which is the fairer denominator — those titles shared a
+marketing apparatus and a storefront position with yours.
+
+- **Momentum** — live concurrent players across the cohort, ranked.
+- **Reception** — positive % and review volume, ranked separately. **The two
+  rankings disagree, and that is the point:** at the time of writing, the cohort's
+  biggest game by players is also its worst reviewed. A single blended score would
+  bury exactly the thing worth seeing, so both are shown whole.
+- **A generated read line** summarising both ranks in one sentence, derived from
+  the numbers above it so it cannot drift out of sync with them.
+
+The cohort is a hand-maintained list in ⚙ Settings, seeded with the seven tinyBuild
+titles released in the 365 days before 1.2.0. Because it is hand-maintained it will
+go stale, so every row carries its release date and anything that has aged past the
+window is flagged **⚠ outside window** rather than silently skewing the ranking —
+the page tells you when it needs updating instead of quietly lying.
+
+> **Why not discover the roster automatically?** Steam's publisher search does work
+> without an API key, but it is undocumented and needs ~100 extra requests to strip
+> demos, DLC and soundtracks out of the raw roster. A curated list you can see and
+> edit was the better trade.
 
 ---
 
@@ -268,14 +292,16 @@ electron/
     http.js          fetch wrapper (User-Agent, timeout, JSON helpers)
     steam.js         appdetails · players · reviews (+ paged) · news
     peers.js         concurrent players for peer App IDs (keyless)
+    tinybuild.js     publisher cohort: fetch (never rejects) + pure ranking
     web.js           whole-web news sweep (Google News RSS, keyless)
     reddit.js  bluesky.js  twitch.js  youtube.js  x.js
 CultWatch.bat / .command          double-click launcher (install + run)
 CultWatch-Update.bat / .command   double-click updater (git pull + install + run)
 renderer/
-  index.html         layout (LIVE + TRENDS boards)
+  index.html         layout (LIVE + TRENDS + TINYBUILD boards)
   styles.css         the "situation room" design system (dark, amber accent)
   trends.js          Trends view: range chart, day bars, complaints, peers
+  tinybuild.js       Tinybuild view: momentum + reception rankings, read line
   app.js             rendering, hand-rolled SVG player chart + review ring,
                      countdown, settings drawer, feeds, view switching
 scripts/
