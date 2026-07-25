@@ -109,4 +109,73 @@ function leaderNote(leader, reception) {
   return `The cohort's biggest game is also among its worst reviewed (${leader.name}, ${row.value}%).`;
 }
 
-module.exports = { rankCohort, readLine };
+// ============================================================
+// Network half — never rejects
+// ============================================================
+
+const steam = require('./steam');
+
+/**
+ * Names and release dates never change, so they are fetched once per title per
+ * run and reused. Memory-only and deliberately not persisted: re-fetching seven
+ * rows after a restart is cheaper than owning another file and its invalidation
+ * rules. Only successful lookups are cached, so a transient failure retries.
+ */
+const META = new Map();
+
+async function getMeta(appId, fallbackName) {
+  if (META.has(appId)) return META.get(appId);
+  try {
+    const d = await steam.getAppDetails(appId);
+    const ts = d.releaseDate ? Date.parse(d.releaseDate) : NaN;
+    const meta = { name: d.name || fallbackName, releasedAt: Number.isNaN(ts) ? null : ts };
+    META.set(appId, meta);
+    return meta;
+  } catch {
+    return { name: fallbackName, releasedAt: null };
+  }
+}
+
+async function getOne(entry) {
+  const appId = String(entry.appId);
+  const fallbackName = entry.name || `App ${appId}`;
+  const errors = [];
+
+  const [meta, ccu, reviews] = await Promise.all([
+    getMeta(appId, fallbackName),
+    steam.getCurrentPlayers(appId).catch((e) => {
+      errors.push(e.message || String(e));
+      return { available: false, count: null };
+    }),
+    steam.getReviewSummary(appId).catch((e) => {
+      errors.push(e.message || String(e));
+      return null;
+    })
+  ]);
+
+  return {
+    appId,
+    // Prefer Steam's own name over the curated one — the curated list is
+    // hand-maintained and a title can be renamed after we wrote it down.
+    name: meta.name || fallbackName,
+    count: ccu.available ? ccu.count : null,
+    ccuAvailable: !!ccu.available,
+    reviews: reviews && reviews.total ? reviews : null,
+    releasedAt: meta.releasedAt,
+    error: errors.length ? errors.join('; ') : null
+  };
+}
+
+/** Never rejects — a title that fails comes back with its data nulled out. */
+async function getCohort(cohort) {
+  const list = (Array.isArray(cohort) ? cohort : []).filter((g) => g && g.appId);
+  if (!list.length) return [];
+  return Promise.all(list.map(getOne));
+}
+
+/** Test seam: drops the per-run metadata cache. */
+function _resetMetaCache() {
+  META.clear();
+}
+
+module.exports = { getCohort, rankCohort, readLine, _resetMetaCache };
