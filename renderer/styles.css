@@ -432,3 +432,10 @@ a:hover { text-decoration: underline; }
 .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 .hidden { display: none !important; }
+
+/* Publisher cohort */
+.tb-read { padding: 10px 14px; font-size: 13px; color: var(--text-2); border-left: 3px solid var(--accent); background: var(--bg-2); border-radius: 0 6px 6px 0; }
+.tb-rank { font-family: var(--mono); font-size: 11px; color: var(--muted-2); width: 16px; flex: 0 0 auto; text-align: right; }
+.tb-flag { color: var(--neg); margin-left: 5px; cursor: help; }
+.tb-vol { font-family: var(--mono); font-size: 11px; color: var(--muted-2); width: 52px; text-align: right; flex: 0 0 auto; }
+.peer-row.us .tb-rank { color: var(--accent); font-weight: 700; }

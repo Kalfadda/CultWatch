@@ -53,12 +53,21 @@ function line(label, ok, detail) {
   soft('youtube');
   soft('x');
   soft('peers');
+  soft('tinybuild');
 
   // Derived analysis
   const pr = snap.peers || { rows: [] };
   const named = pr.rows.filter((r) => r.available && !r.us).length;
   line('peer ranking', pr.ourRank != null || !pr.rows.length,
     pr.ourRank ? `we are #${pr.ourRank} of ${pr.rows.length} (${named} peers reporting)` : 'no player data to rank yet');
+
+  const tb = snap.tinybuild;
+  line('cohort ranking', !tb || tb.momentum.ourRank != null || !tb.cohortSize,
+    tb && tb.cohortSize
+      ? `${tb.cohortSize} titles · momentum #${tb.momentum.ourRank} of ${tb.momentum.ourOf}` +
+        ` · reception #${tb.reception.ourRank} of ${tb.reception.ourOf}` +
+        (tb.flagged ? ` · ${tb.flagged} outside window` : '')
+      : 'cohort empty or disabled');
 
   const ri = snap.reviewIntel || { coverage: {}, themes: [] };
   const cov = ri.coverage || {};
@@ -95,5 +104,6 @@ function count(snap, name) {
   if (name === 'youtube') return (snap.youtube && snap.youtube.videos || []).length;
   if (name === 'x') return (snap.x && snap.x.posts || []).length;
   if (name === 'peers') return (snap.peers && snap.peers.rows || []).length;
+  if (name === 'tinybuild') return (snap.tinybuild && snap.tinybuild.cohortSize) || 0;
   return 0;
 }

@@ -27,6 +27,7 @@
       <div class="view-switch" id="viewSwitch">
         <button class="vs-btn active" data-view="live" title="Today's situation room">LIVE</button>
         <button class="vs-btn" data-view="trends" title="Day-over-day, complaints, peers">TRENDS</button>
+        <button class="vs-btn" data-view="tinybuild" title="Us vs the publisher's recent releases">TINYBUILD</button>
       </div>
 
       <div class="topbar-right">
@@ -184,6 +185,30 @@
       </footer>
     </main>
 
+    <!-- ===== Publisher cohort dashboard ===== -->
+    <main class="board hidden" id="boardTinybuild">
+      <section class="kpis" id="tbKpis"></section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2 id="tbHead">Publisher cohort</h2>
+          <div class="panel-tools"><span class="chip" id="tbChip">—</span></div>
+        </div>
+        <div class="tb-read hidden" id="tbRead"></div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head"><h2>Momentum <span class="count">live players</span></h2></div>
+          <div id="tbMomentum"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Reception <span class="count">positive %</span></h2></div>
+          <div id="tbReception"></div>
+        </div>
+      </section>
+    </main>
+
     <!-- ===== Settings drawer ===== -->
     <div class="drawer-scrim" id="drawerScrim"></div>
     <aside class="drawer" id="settingsDrawer" aria-hidden="true">
@@ -202,6 +227,7 @@
     <div class="toast" id="toast"></div>
 
     <!-- trends.js first: app.js calls boot() at end of file. -->
+    <script src="tinybuild.js"></script>
     <script src="trends.js"></script>
     <script src="app.js"></script>
   </body>

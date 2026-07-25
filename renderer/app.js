@@ -1,6 +1,6 @@
 'use strict';
 
-/* global cultwatch, initTrends, renderTrends, resizeTrendChart */
+/* global cultwatch, initTrends, renderTrends, resizeTrendChart, renderTinybuild */
 
 // ============================================================
 // State
@@ -98,6 +98,7 @@ function render(s) {
   renderFoot(s);
   updateCountdown();
   if (currentView === 'trends') renderTrends(s);
+  if (currentView === 'tinybuild') renderTinybuild(s);
 }
 
 // ---- View switching (Live board stays exactly as it was) ----
@@ -105,9 +106,11 @@ function setView(v) {
   currentView = v;
   el('boardLive').classList.toggle('hidden', v !== 'live');
   el('boardTrends').classList.toggle('hidden', v !== 'trends');
+  el('boardTinybuild').classList.toggle('hidden', v !== 'tinybuild');
   el('viewSwitch').querySelectorAll('.vs-btn')
     .forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   if (v === 'trends' && snapshot) renderTrends(snapshot);
+  if (v === 'tinybuild' && snapshot) renderTinybuild(snapshot);
 }
 
 function timeOfDay(ms) {
@@ -554,11 +557,37 @@ const SETTINGS_SCHEMA = [
     { key: 'peers', label: 'Peer games — one "appId: Name" per line', type: 'lines',
       hint: 'Keyless: uses the same public player-count endpoint as your own game. A title that reports no live players shows as "no data" rather than an error.' }
   ]},
+  { group: 'Publisher cohort', fields: [
+    { key: 'tinybuild.cohort', label: 'Cohort games — one "appId: Name" per line', type: 'lines',
+      hint: 'Titles from your publisher released recently. Hand-maintained: anything released longer ago than the window below is flagged ⚠ rather than dropped, so a stale list stays visible instead of quietly skewing the ranking.' },
+    { key: 'tinybuild.label', label: 'Publisher name', type: 'text' },
+    { key: 'tinybuild.windowDays', label: 'Window (days)', type: 'days' }
+  ]},
   { group: 'Complaint taxonomy', fields: [
     { key: 'reviewTaxonomy', label: 'Themes — one "Label: keyword, keyword" per line', type: 'textarea',
       hint: 'Clusters negative reviews. Leave blank for the built-in set. Keywords match literally (English reviews only).' }
   ]}
 ];
+
+/** Reads "a.b.c" out of a config object. Settings keys are mostly flat, but the
+ *  publisher cohort is nested, and flattening it in the store would just move the
+ *  problem into the poller. */
+function getPath(obj, key) {
+  return key.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+/** Writes "a.b.c" into a patch, creating intermediate objects. The store deep-
+ *  merges, so a partial nested patch leaves its siblings alone. */
+function setPath(obj, key, value) {
+  const parts = key.split('.');
+  const last = parts.pop();
+  let cur = obj;
+  for (const p of parts) {
+    if (typeof cur[p] !== 'object' || cur[p] === null) cur[p] = {};
+    cur = cur[p];
+  }
+  cur[last] = value;
+}
 
 function buildSettings() {
   const body = el('settingsBody');
@@ -570,7 +599,7 @@ function buildSettings() {
   SETTINGS_SCHEMA.forEach((g) => {
     html += `<div class="set-group"><h3>${esc(g.group)}</h3>`;
     g.fields.forEach((f) => {
-      let val = config ? config[f.key] : '';
+      let val = config ? getPath(config, f.key) : '';
       if (f.type === 'list') val = Array.isArray(val) ? val.join(', ') : (val || '');
       if (f.type === 'lines') {
         val = Array.isArray(val) ? val.map((p) => `${p.appId}: ${p.name || ''}`).join('\n') : '';
@@ -635,6 +664,9 @@ async function saveSettings() {
     let v = inp.value.trim();
     if (kind === 'number') {
       v = Math.max(15, parseInt(v, 10) || 60);
+    } else if (kind === 'days') {
+      // A window, not a poll interval — it has its own floor and default.
+      v = Math.max(1, parseInt(v, 10) || 365);
     } else if (kind === 'list') {
       v = v.split(',').map((x) => x.trim()).filter(Boolean);
     } else if (kind === 'lines') {
@@ -648,7 +680,7 @@ async function saveSettings() {
     } else if (kind === 'textarea') {
       v = v || null; // blank means "use the built-in set"
     }
-    patch[key] = v;
+    setPath(patch, key, v);
   });
   el('sourceToggles').querySelectorAll('input[data-src]').forEach((cb) => {
     patch.sources[cb.dataset.src] = cb.checked;
