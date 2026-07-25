@@ -8,6 +8,7 @@ const youtube = require('./services/youtube');
 const x = require('./services/x');
 const web = require('./services/web');
 const peersSvc = require('./services/peers');
+const tinybuildSvc = require('./services/tinybuild');
 const { coverageFor, dayKey, dayStartMs, DAY_MS } = require('./history');
 const { analyze, parseTaxonomy, DEFAULT_TAXONOMY } = require('./reviews');
 
@@ -58,7 +59,8 @@ async function collect(store, now = Date.now()) {
     ),
     settle('youtube', src.youtube, () => youtube.search({ apiKey: cfg.youtubeApiKey, keywords: cfg.keywords })),
     settle('x', src.x, () => x.search({ bearerToken: cfg.xBearerToken, keywords: cfg.keywords })),
-    settle('peers', src.peers, () => peersSvc.getPeerPlayers(cfg.peers))
+    settle('peers', src.peers, () => peersSvc.getPeerPlayers(cfg.peers)),
+    settle('tinybuild', src.tinybuild, () => tinybuildSvc.getCohort(cfg.tinybuild && cfg.tinybuild.cohort))
   ];
 
   const results = await Promise.all(tasks);
@@ -121,7 +123,9 @@ async function collect(store, now = Date.now()) {
       gameName: cfg.gameName,
       launchDate: cfg.launchDate,
       refreshIntervalSec: cfg.refreshIntervalSec,
-      sources: src
+      sources: src,
+      tinybuildLabel: (cfg.tinybuild && cfg.tinybuild.label) || 'Publisher',
+      tinybuildWindowDays: (cfg.tinybuild && cfg.tinybuild.windowDays) || 365
     },
     game: by.appDetails.data || null,
     web: by.web.data || [],
@@ -139,6 +143,9 @@ async function collect(store, now = Date.now()) {
     youtube: by.youtube.data || { enabled: false, videos: [] },
     x: by.x.data || { enabled: false, posts: [] },
     peers: peersSvc.rankPeers(peerList, playersRes.available ? playersRes.count : null, cfg.gameName),
+    tinybuild: by.tinybuild.data
+      ? tinybuildSvc.rankCohort(by.tinybuild.data, appId, now, cfg.tinybuild && cfg.tinybuild.windowDays)
+      : null,
     trends: { days, retention: buildRetention(days, launchTs) },
     reviewIntel,
     events: store.eventLog.recent(60),
