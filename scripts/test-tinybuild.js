@@ -133,5 +133,38 @@ function row(appId, count, pct, total, releasedAt) {
   ok('an all-unavailable cohort has no leader', allDead.momentum.leader === null);
 }
 
+// ============================================================
+// 3. Read line
+// ============================================================
+{
+  const both = rankCohort([row('a', 900, 40, 9000), row('us', 500, 80), row('b', 100, 60)], 'us', NOW, 365);
+  ok('the read line names both ranks', /#2 of 3 by players and #1 of 3 by sentiment/.test(both.readLine) ||
+    /#1 by sentiment, #2 of 3 by players/.test(both.readLine));
+
+  // Leader is last of three on reception -> in the bottom third -> called out.
+  ok('a badly-reviewed leader is called out', /biggest game is also among its worst reviewed/.test(both.readLine));
+  ok('the call-out names the leader and its pct', /App a, 40%/.test(both.readLine));
+}
+{
+  // Leader is also the best reviewed -> nothing to call out.
+  const clean = rankCohort([row('a', 900, 95), row('us', 500, 80), row('b', 100, 60)], 'us', NOW, 365);
+  ok('a well-reviewed leader is not called out', !/worst reviewed/.test(clean.readLine));
+}
+{
+  const usLeads = rankCohort([row('us', 900, 95), row('a', 100, 60)], 'us', NOW, 365);
+  ok('leading both axes is stated plainly', usLeads.readLine === 'Top of the cohort on both players and sentiment.');
+  ok('we are never called out as our own bad leader', !/worst reviewed/.test(usLeads.readLine));
+}
+{
+  const noReviews = rankCohort([row('a', 900, null), row('us', 500, null)], 'us', NOW, 365);
+  ok('one axis degrades to a single clause', noReviews.readLine === '#2 of 2 by players; no sentiment data.');
+
+  const noCcu = rankCohort([row('a', null, 90), row('us', null, 70)], 'us', NOW, 365);
+  ok('the other axis degrades too', noCcu.readLine === '#2 of 2 by sentiment; no player data.');
+
+  const neither = rankCohort([row('a', null, null), row('us', null, null)], 'us', NOW, 365);
+  ok('no data at all yields no read line', neither.readLine === null);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
