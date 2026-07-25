@@ -1,0 +1,20 @@
+{
+  "appId": "com.scythedevteam.cultwatch",
+  "appName": "CultWatch",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#ff7a1a"
+    }
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

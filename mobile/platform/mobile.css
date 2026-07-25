@@ -1,0 +1,88 @@
+/* CultWatch — Android overrides.
+ *
+ * Loaded after styles.css, so this only has to correct what a phone changes:
+ * the desktop sheet assumes a wide window, a mouse, and no notch. The design
+ * system itself (colours, type scale, the amber accent) is inherited untouched.
+ *
+ * Two form factors matter on a Fold: the ~344dp cover screen, where everything
+ * must collapse to one column, and the ~840dp unfolded screen, which is closer
+ * to a small tablet and can keep two.
+ */
+
+/* Safe areas: the topbar must clear the punch-hole/status bar, and the board
+   must clear the gesture pill, or content sits under both. */
+.topbar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+  padding-left: calc(env(safe-area-inset-left, 0px) + 10px);
+  padding-right: calc(env(safe-area-inset-right, 0px) + 10px);
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  height: auto;
+}
+
+.board {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+/* Touch targets: the desktop icon buttons are ~28px, below the 44px minimum
+   that stops mis-taps. */
+.btn, .vs-btn, .tab, .link-btn {
+  min-height: 40px;
+  padding-inline: 12px;
+}
+.btn.icon { min-width: 44px; }
+
+/* The view switch is the primary navigation on a phone, so it gets a full row
+   of its own rather than competing for space in the header. */
+.view-switch { width: 100%; order: 10; }
+.view-switch .vs-btn { flex: 1; text-align: center; }
+
+/* Momentum/reception bars and peer rows are already flex rows; they only need
+   the name column to stop being a fixed 150px on a narrow screen. */
+.peer-row .pr-name { width: auto; flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 700px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grid-2, .grid-2.feeds { grid-template-columns: 1fr; gap: 12px; }
+  .board { padding-inline: 10px; }
+  .chart-wrap { min-height: 180px; }
+
+  /* Full-width drawer: a 380px side panel on a 360px screen is a scroll trap. */
+  .drawer { width: 100%; border-left: none; }
+
+  /* Long titles are the norm in the cohort ("Happy's Humble Burger Cult"),
+     so let them wrap instead of ellipsing into uselessness. */
+  .peer-row { flex-wrap: wrap; row-gap: 4px; }
+  .peer-row .pr-name { flex-basis: 100%; white-space: normal; overflow: visible; }
+  .peer-row .pr-bar { flex: 1 1 auto; }
+}
+
+/* Cover screen — very narrow. One KPI per row keeps the numbers legible. */
+@media (max-width: 400px) {
+  .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .topbar-right { gap: 8px; }
+  .board-foot { flex-direction: column; gap: 4px; }
+}
+
+/* Unfolded — effectively a small tablet, so the two-column feeds come back. */
+@media (min-width: 701px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .grid-2.feeds { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Momentum bars can be extremely skewed (one cohort member at 10x the rest),
+   so give the bar a visible track even at 1% width. */
+.peer-row .pr-bar { min-width: 40px; }
+
+/* Kill hover-only affordances that stick on touch. */
+@media (hover: none) {
+  .btn:hover, .vs-btn:hover, .tab:hover { filter: none; }
+}
+
+/* Native-feeling scroll + no accidental text selection on taps. */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+.peer-row, .kpi, .vs-btn, .btn { -webkit-user-select: none; user-select: none; }

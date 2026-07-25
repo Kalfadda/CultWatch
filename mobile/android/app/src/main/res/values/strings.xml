@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CultWatch</string>
+    <string name="title_activity_main">CultWatch</string>
+    <string name="package_name">com.scythedevteam.cultwatch</string>
+    <string name="custom_url_scheme">com.scythedevteam.cultwatch</string>
+</resources>
