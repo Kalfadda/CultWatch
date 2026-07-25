@@ -137,6 +137,59 @@ the page tells you when it needs updating instead of quietly lying.
 
 ---
 
+## CultWatch on Android 📱
+
+The same situation room runs on a phone. Not a companion app and not a
+reimplementation — **the same code**.
+
+```bash
+npm run mobile:apk     # bundle, sync, build a debug APK
+adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Electron has no Android target, so this is a genuine port — but a small one,
+because none of the intelligence was ever Node-bound. Every service, the poller,
+alerts, attribution, review analysis and the publisher cohort use only the global
+`fetch` a WebView already has. Exactly three things are platform-specific, and
+`scripts/build-mobile.js` swaps each under the same module id:
+
+| module | desktop | Android |
+|---|---|---|
+| `./atomic` | `fs` read/write | `localStorage` — still **synchronous** |
+| `./services/http` | Node `fetch` | `CapacitorHttp` |
+| `fs` / `path` | Node built-ins | thin shims (paths become storage keys) |
+
+Two of those choices carry the whole port:
+
+**Storage stays synchronous.** `localStorage` keeps `readJson`/`writeJson`
+blocking, exactly like `fs.readFileSync`. That is what lets `config.js`,
+`history.js`, `reviews.js` and `events.js` run **completely unmodified** — an
+async store (Preferences, SQLite) would have forced all four to be rewritten.
+
+**Requests leave the WebView.** Steam sends no `Access-Control-Allow-Origin`, so a
+plain `fetch` from the page is blocked by the browser before the body is readable
+— not because Steam refused it, but because the page isn't allowed to see it.
+`CapacitorHttp` performs the request natively, where CORS does not apply.
+
+`mobile/www/js/bootstrap.js` replaces `main.js` + `preload.js`, exposing the same
+`window.cultwatch` surface, so `app.js`, `trends.js` and `tinybuild.js` are copied
+across untouched. The upshot is that there is **one** copy of the logic: change a
+service and the phone inherits it on the next `mobile:build`. The two cannot drift,
+because there is nothing to keep in sync.
+
+Mobile-specific caveats, stated honestly:
+
+- **Polling only runs while the app is open**, and pauses when backgrounded. Same
+  limitation as the desktop app, and for the same reason — there is no background
+  service.
+- **`localStorage` is capped at roughly 5 MB.** A full write failure is reported
+  rather than swallowed, because silently dropping history would look identical to
+  a quiet day.
+- **No auto-update.** The desktop app updates itself; the APK is installed.
+  `checkUpdates` says so instead of pretending otherwise.
+
+---
+
 ## Launch-day alerts 🔔
 
 CultWatch watches the numbers so you don't have to stare at the screen. The

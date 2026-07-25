@@ -1,7 +1,7 @@
 {
   "name": "cultwatch",
   "productName": "CultWatch",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Live launch-day situation room for Happy's Humble Burger Cult",
   "main": "electron/main.js",
   "author": "Scythe Dev Team",
@@ -18,7 +18,10 @@
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
     "dist:linux": "electron-builder --linux",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "mobile:build": "node scripts/build-mobile.js",
+    "mobile:sync": "node scripts/build-mobile.js && cd mobile && npx cap sync android",
+    "mobile:apk": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
