@@ -16,3 +16,7 @@ mobile/android/.gradle/
 mobile/android/local.properties
 mobile/android/app/src/main/assets/public/
 *.apk
+# Android signing — credentials never go in the repo
+mobile/android/keystore.properties
+*.jks
+*.keystore

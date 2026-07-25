@@ -13,12 +13,39 @@
    must clear the gesture pill, or content sits under both. */
 .topbar {
   padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+  padding-bottom: 8px;
   padding-left: calc(env(safe-area-inset-left, 0px) + 10px);
   padding-right: calc(env(safe-area-inset-right, 0px) + 10px);
   flex-wrap: wrap;
   gap: 8px 10px;
   height: auto;
+  /* The desktop bar is a single 62px row sized for a ~1400px window. Its
+     children are laid out in one line with `margin-left: auto` pushing the
+     actions to the far right — on a ~350px phone that pushed ⚙ and 🔔 clean off
+     the edge, unreachable with no scroll to recover them. Wrapping is what makes
+     the row honest about not fitting. */
 }
+
+/* Nothing in the bar may force the row wider than the screen. Without min-width:0
+   a flex item refuses to shrink below its content, which is precisely how the
+   action buttons got pushed out of view. */
+.topbar > * { min-width: 0; }
+
+/* The actions take a full row of their own and wrap within it, so every button
+   is reachable no matter how narrow the device. This is the actual fix for the
+   missing ⚙. */
+.topbar-right {
+  flex: 1 1 100%;
+  margin-left: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  order: 5;
+}
+
+.brand { flex: 1 1 auto; }
+.brand-sub { max-width: 100%; }
+.launch-status { flex: 0 1 auto; min-width: 0; margin-left: 0; }
 
 .board {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
@@ -34,8 +61,36 @@
 
 /* The view switch is the primary navigation on a phone, so it gets a full row
    of its own rather than competing for space in the header. */
-.view-switch { width: 100%; order: 10; }
-.view-switch .vs-btn { flex: 1; text-align: center; }
+.view-switch { width: 100%; order: 10; flex: 1 1 100%; }
+.view-switch .vs-btn { flex: 1 1 0; text-align: center; min-width: 0; padding-inline: 4px; }
+
+/* Cover-screen widths cannot fit "TINYBUILD" at the desktop letter-spacing
+   alongside two other tabs, and a clipped tab label is a button people do not
+   realise they can press. */
+@media (max-width: 420px) {
+  .view-switch .vs-btn { font-size: 11px; letter-spacing: 0.5px; }
+}
+
+/* Long game names must not widen the bar; they ellipse instead. */
+.brand-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Panel headers put a title and a tab group on one line. At ~344px the range
+   tabs (24h / 7d / All) and the feed tabs pushed ~80px past the right edge —
+   measured, not guessed. They must wrap rather than run off. */
+.panel-head { flex-wrap: wrap; gap: 6px 10px; }
+.panel-head h2 { min-width: 0; }
+.panel-tools { flex-wrap: wrap; min-width: 0; }
+.tabs { flex-wrap: wrap; }
+
+/* The 40px touch target above is right for real buttons, but applying its
+   horizontal padding to these small tabs is part of what made them overflow. */
+.tab { padding-inline: 9px; }
+
+/* Belt and braces: the page must never scroll sideways. This is a guard, NOT the
+   fix — anything overflowing here is clipped and therefore unreachable, which is
+   exactly how the tabs above went missing. scripts/check-mobile-layout.js
+   measures the real DOM on a device so clipping cannot hide a regression again. */
+html, body { max-width: 100%; overflow-x: hidden; }
 
 /* Momentum/reception bars and peer rows are already flex rows; they only need
    the name column to stop being a fixed 150px on a narrow screen. */

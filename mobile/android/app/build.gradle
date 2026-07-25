@@ -1,5 +1,18 @@
 apply plugin: 'com.android.application'
 
+// Release signing. Credentials live in keystore.properties, which is gitignored,
+// and the keystore itself is deliberately stored OUTSIDE the repo so it cannot be
+// committed by accident.
+//
+// The build stays usable without them: if the file is absent, the release build
+// simply goes unsigned rather than failing, so a fresh clone can still compile.
+// A publishable APK does require them — see mobile/SIGNING.md.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace "com.scythedevteam.cultwatch"
     compileSdk rootProject.ext.compileSdkVersion
@@ -18,10 +31,28 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystoreProps['storeFile']) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // debuggable is false here by default, which is the point: the debug
+            // build ships debuggable=true and is signed with the SDK's universal
+            // "Android Debug" key, so anyone could read its data or forge an
+            // update. Neither is acceptable for an APK strangers install.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystoreProps['storeFile']) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
