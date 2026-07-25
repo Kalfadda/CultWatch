@@ -49,6 +49,26 @@ const DEFAULTS = {
     { appId: '2881650', name: 'Content Warning' }
   ],
 
+  // --- Publisher cohort (tinyBuild) ---
+  // Curated rather than scraped: Steam's publisher search works keylessly but is
+  // undocumented and needs ~100 appdetails calls to strip demos, DLC and OSTs out
+  // of the raw roster. The cost of curating is a list that goes stale, so every
+  // row carries its release date and anything past `windowDays` is flagged in the
+  // UI rather than silently skewing the comparison.
+  tinybuild: {
+    label: 'tinyBuild',
+    windowDays: 365,
+    cohort: [
+      { appId: '3453910', name: "Happy's Humble Burger Cult" },
+      { appId: '1431300', name: 'SAND: Raiders of Sophie' },
+      { appId: '2706020', name: 'ALL WILL FALL' },
+      { appId: '3326230', name: 'Hozy' },
+      { appId: '1645630', name: 'FEROCIOUS' },
+      { appId: '2357000', name: 'KILL IT WITH FIRE! 2' },
+      { appId: '2893820', name: 'Of Ash and Steel' }
+    ]
+  },
+
   // Complaint taxonomy for clustering negative reviews, as "Label: kw, kw"
   // lines. null means "use the built-in DEFAULT_TAXONOMY".
   reviewTaxonomy: null,
@@ -75,7 +95,8 @@ const DEFAULTS = {
     twitch: true,
     youtube: true,
     x: true,
-    peers: true
+    peers: true,
+    tinybuild: true
   }
 };
 

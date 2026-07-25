@@ -112,6 +112,27 @@ function freshDir(seed) {
   ok('a malformed line-up does not throw or migrate', c.peers.length === 2);
 }
 
+// ============================================================
+// 4. tinyBuild cohort
+// ============================================================
+{
+  const c = new Store(freshDir(null)).get();
+  const ids = c.tinybuild.cohort.map((g) => g.appId);
+  ok('cohort has the seven verified titles', ids.length === 7);
+  ok('our own game is in the cohort', ids.includes('3453910'));
+  ok('SAND is in the cohort', ids.includes('1431300'));
+  ok('cohort App IDs are unique', new Set(ids).size === ids.length);
+  ok('every cohort entry has a name', c.tinybuild.cohort.every((g) => g.name && g.appId));
+  ok('window defaults to 365 days', c.tinybuild.windowDays === 365);
+  ok('publisher label defaults to tinyBuild', c.tinybuild.label === 'tinyBuild');
+  ok('the source defaults to on', c.sources.tinybuild === true);
+
+  // A config saved before 1.2.0 has no `tinybuild` key at all, so the defaults
+  // must flow in through the normal deep merge — no migration, unlike `peers`.
+  const old = new Store(freshDir({ refreshIntervalSec: 30 })).get();
+  ok('a pre-1.2.0 config inherits the cohort', old.tinybuild.cohort.length === 7);
+}
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
