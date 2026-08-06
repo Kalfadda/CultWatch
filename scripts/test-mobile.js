@@ -123,10 +123,58 @@ ok('app.js loads last', srcs[srcs.length - 1] === 'app.js');
 {
   const core = fs.readFileSync(path.join(WWW, 'js', 'cultwatch-core.js'), 'utf8');
   ok('atomic is the localStorage version, not the fs one', /localStorage\.setItem/.test(core) &&
-    !/fs\.writeFileSync\(tmp/.test(core));
+    !/fs\.fsyncSync/.test(core));
   ok('http is the CapacitorHttp version', /CapacitorHttp/.test(core));
   ok('the cohort service is bundled', /rankCohort/.test(core));
   ok('no bare Node require survived the bundle', !/require\('node:/.test(core));
+}
+
+// ============================================================
+// 5. The mobile atomic must honour the desktop contract
+// ============================================================
+// history.js is shared verbatim and depends on a read that distinguishes
+// "missing" from "unreadable" — collapsing the two is what wiped the desktop
+// record on every corrupt file. A localStorage version that quietly lost the
+// distinction would reintroduce exactly that bug on Android, and nothing else
+// here would notice.
+{
+  const desktop = require('../electron/atomic');
+  const src = fs.readFileSync(path.join(ROOT, 'mobile', 'platform', 'atomic.js'), 'utf8');
+
+  const cells = new Map();
+  const sandbox = {
+    console,
+    module: { exports: {} },
+    localStorage: {
+      getItem: (k) => (cells.has(k) ? cells.get(k) : null),
+      setItem: (k, v) => cells.set(k, String(v)),
+      removeItem: (k) => cells.delete(k),
+      key: (i) => [...cells.keys()][i],
+      get length() { return cells.size; }
+    }
+  };
+  sandbox.exports = sandbox.module.exports;
+  vm.createContext(sandbox);
+  new vm.Script(src, { filename: 'mobile/platform/atomic.js' }).runInContext(sandbox);
+  const mobile = sandbox.module.exports;
+
+  const absent = Object.keys(desktop).filter((k) => typeof mobile[k] !== 'function');
+  ok('mobile atomic exports everything the desktop one does', absent.length === 0, absent.join(', '));
+
+  ok('mobile reports an absent key as missing', mobile.readJsonState('h.json').status === 'missing');
+  mobile.writeJson('h.json', { a: 1 });
+  const good = mobile.readJsonState('h.json');
+  ok('mobile reports a good value as ok', good.status === 'ok' && good.data.a === 1);
+
+  cells.set('cultwatch:h.json', '{ not json');
+  ok('mobile reports an unparseable value as unreadable', mobile.readJsonState('h.json').status === 'unreadable');
+  ok('mobile readJson still falls back for callers that do not care',
+    mobile.readJson('h.json', 'fallback') === 'fallback');
+
+  const moved = mobile.quarantine('h.json', 7);
+  ok('mobile quarantine moves the value aside',
+    moved === 'h.json.corrupt-7' && cells.get('cultwatch:h.json.corrupt-7') === '{ not json');
+  ok('mobile quarantine frees the live key', !cells.has('cultwatch:h.json'));
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

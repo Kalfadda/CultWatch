@@ -204,12 +204,14 @@ function renderChart(s) {
   const peak = s.players && s.players.peakSession;
   el('playersPeakChip').textContent = 'peak ' + (peak != null ? fmt(peak) : '—');
 
+  const note = storageNote(s.storage);
+
   if (history.length < 2) {
     wrap.innerHTML = `<div class="chart-empty">${
       s.game && s.game.comingSoon
         ? 'Player telemetry begins the moment the game goes live.<br>Chart fills in automatically on launch day.'
         : 'Collecting player samples… the line appears after a couple of refreshes.'
-    }</div>`;
+    }</div>${note}`;
     return;
   }
 
@@ -225,12 +227,33 @@ function renderChart(s) {
   const X = (t) => padL + ((t - minX) / spanX) * (W - padL - padR);
   const Y = (v) => H - padB - (v / maxY) * (H - padT - padB);
 
-  let path = '', area = '';
-  history.forEach((p, i) => {
-    const x = X(p.t), y = Y(p.v == null ? 0 : p.v);
-    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
-  });
-  area = path + `L${X(maxX).toFixed(1)} ${H - padB} L${X(minX).toFixed(1)} ${H - padB} Z`;
+  // Break the line wherever the app was not running. History now spans days, so
+  // a single continuous path would run from yesterday evening to this afternoon
+  // and assert player counts that were never sampled. The threshold arrives from
+  // the main process; all that is decided here is where the ink stops.
+  const gapMs = (s.players && s.players.gapMs) || Infinity;
+  const runs = [[history[0]]];
+  for (let i = 1; i < history.length; i++) {
+    if (history[i].t - history[i - 1].t > gapMs) runs.push([]);
+    runs[runs.length - 1].push(history[i]);
+  }
+
+  let lines = '', areas = '', orphans = '';
+  for (const run of runs) {
+    const yOf = (p) => Y(p.v == null ? 0 : p.v);
+    if (run.length === 1) {
+      // A lone sample between two gaps has no line to be part of, and dropping
+      // it would quietly hide a session that really happened.
+      orphans += `<circle cx="${X(run[0].t).toFixed(1)}" cy="${yOf(run[0]).toFixed(1)}" r="2" class="orphan"/>`;
+      continue;
+    }
+    let d = '';
+    run.forEach((p, i) => {
+      d += (i === 0 ? 'M' : 'L') + X(p.t).toFixed(1) + ' ' + yOf(p).toFixed(1) + ' ';
+    });
+    lines += `<path d="${d}" class="line"/>`;
+    areas += `<path d="${d}L${X(run[run.length - 1].t).toFixed(1)} ${H - padB} L${X(run[0].t).toFixed(1)} ${H - padB} Z" fill="url(#areaGrad)"/>`;
+  }
 
   // Y gridlines
   const ticks = niceTicks(maxY, 4);
@@ -241,10 +264,18 @@ function renderChart(s) {
     grid += `<text x="${padL - 8}" y="${y + 4}" class="ylab">${fmtCompact(t)}</text>`;
   });
 
-  // X labels (start / mid / end)
-  const xlabels = [minX, minX + spanX / 2, maxX].map((t) => {
+  // X labels (start / mid / end). Once the span passes a day a bare clock time
+  // is ambiguous — "02:00" could be any of three mornings.
+  const multiDay = spanX > 24 * 60 * 60 * 1000;
+  // The end labels are anchored inwards: centred on the last sample, a date runs
+  // off the right edge of the viewBox and gets clipped.
+  const anchors = ['start', 'middle', 'end'];
+  const xlabels = [minX, minX + spanX / 2, maxX].map((t, i) => {
     const d = new Date(t);
-    return `<text x="${X(t)}" y="${H - 8}" class="xlab" text-anchor="middle">${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</text>`;
+    const text = multiDay
+      ? `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit' })}`
+      : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `<text x="${X(t)}" y="${H - 8}" class="xlab" text-anchor="${anchors[i]}">${text}</text>`;
   }).join('');
 
   const last = history[history.length - 1];
@@ -264,15 +295,29 @@ function renderChart(s) {
         .ylab { fill: #7d879c; font: 11px var(--mono, monospace); text-anchor: end; }
         .xlab { fill: #7d879c; font: 11px var(--mono, monospace); }
         .line { fill: none; stroke: #ff7a1a; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+        .orphan { fill: #ff7a1a; }
       </style>
       ${grid}
       ${xlabels}
-      <path d="${area}" fill="url(#areaGrad)"/>
-      <path d="${path}" class="line"/>
+      ${areas}
+      ${lines}
+      ${orphans}
       ${peakPoint ? `<circle cx="${X(peakPoint.t)}" cy="${Y(peakPoint.v)}" r="3.5" fill="#ff3b57"/>` : ''}
       <circle cx="${lastX}" cy="${lastY}" r="4" fill="#ff7a1a"/>
       <circle cx="${lastX}" cy="${lastY}" r="8" fill="#ff7a1a" opacity="0.25"/>
-    </svg>`;
+    </svg>${note}`;
+}
+
+/** A file that failed to load has to be stated, not implied. The symptom is a
+ *  short record, which is indistinguishable from a quiet week. */
+function storageNote(storage) {
+  const damaged = (storage && storage.damaged) || [];
+  if (!damaged.length) return '';
+  const files = damaged.map((d) => d.file).join(', ');
+  const outcome = storage.recovered
+    ? 'the day-by-day record was restored from its backup'
+    : 'whatever they held is gone';
+  return `<div class="chart-note">⚠ Unreadable on load: ${files} — quarantined rather than overwritten, and ${outcome}.</div>`;
 }
 
 function niceTicks(max, count) {

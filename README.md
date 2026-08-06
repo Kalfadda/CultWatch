@@ -389,14 +389,21 @@ so the launch curve isn't lost to a rolling buffer the way it was in 1.0:
 | daily | one row per day (peak/avg/low/coverage) | forever |
 
 Upgrading from 1.0 migrates whatever the old 48-hour buffer still holds into the
-daily rollups, so it stops evicting. Every write is atomic (temp file + rename),
-so a crash mid-write can't corrupt your history.
+daily rollups, so it stops evicting.
+
+Every write goes to a temp file, is flushed to the disk, and is then renamed into
+place, so neither a crash mid-write nor a power cut can leave a half-written file.
+Should one turn up unreadable anyway, it is renamed to `.corrupt-<timestamp>`
+rather than overwritten, the day-by-day record is restored from a backup written
+every four hours, and the app says so under the chart. Before 1.5.0 the flush was
+missing and an unreadable file was indistinguishable from a first run, which is
+exactly how an unclean shutdown could silently erase the whole record.
 
 Files under `<userData>`:
 
 - **Config:** `cultwatch-config.json`
 - **History:** `cultwatch-history.json` (fine), `cultwatch-series-medium.json`,
-  `cultwatch-series-daily.json`
+  `cultwatch-series-daily.json`, `cultwatch-series-daily.bak.json` (backup)
 - **Reviews:** `cultwatch-reviews.json` (corpus for clustering + velocity)
 - **Events:** `cultwatch-events.json` (chart markers)
 - **Alert state:** `cultwatch-alertstate.json` (de-dup bookkeeping)

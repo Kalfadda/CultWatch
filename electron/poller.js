@@ -133,7 +133,11 @@ async function collect(store, now = Date.now()) {
       current: playersRes.available ? playersRes.count : null,
       available: playersRes.available,
       peakSession,
-      history
+      history,
+      // Where the live chart must stop drawing. Three missed polls is a stretch
+      // the app was closed for, not a trend; the renderer is handed the
+      // threshold and only decides where the ink breaks.
+      gapMs: 3 * pollMs
     },
     reviews: reviewsData,
     news: by.news.data || [],
@@ -147,6 +151,10 @@ async function collect(store, now = Date.now()) {
       ? tinybuildSvc.rankCohort(by.tinybuild.data, appId, now, cfg.tinybuild && cfg.tinybuild.windowDays)
       : null,
     trends: { days, retention: buildRetention(days, launchTs) },
+    // What survived the last load. A quarantined file has to be visible: the
+    // symptom of the bug this exists to catch is a short record, which looks
+    // exactly like a quiet week.
+    storage: store.series.health(),
     reviewIntel,
     events: store.eventLog.recent(60),
     status: Object.fromEntries(

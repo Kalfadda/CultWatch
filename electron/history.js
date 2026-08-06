@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { readJson, writeJson } = require('./atomic');
+const { readJsonState, writeJson, quarantine } = require('./atomic');
 
 /**
  * Tiered player-count history.
@@ -9,11 +9,19 @@ const { readJson, writeJson } = require('./atomic');
  *   fine    raw samples (~1/min), 48h        cultwatch-history.json        [{t,v}]
  *   medium  5-minute buckets, 30 days        cultwatch-series-medium.json  {v,rows}
  *   daily   one row per local day, forever   cultwatch-series-daily.json   {v,rows}
+ *                                            cultwatch-series-daily.bak.json
  *
  * The flat 48h ring buffer this replaces silently discarded launch day — by the
  * time anyone wanted to compare week two to launch, the launch curve was gone.
  * Every push folds into all three tiers at once, so rollups are never stale and
  * there is no batch job to miss.
+ *
+ * Loading is where the record was actually being lost. A read that failed used
+ * to be indistinguishable from a first run, so one file corrupted by an unclean
+ * shutdown produced an empty rebuild that was then written straight over the
+ * permanent daily tier. The rule now is narrow and absolute: a tier is rebuilt
+ * only when its file is *missing* or of an older version — never when it failed
+ * to read. See docs/superpowers/specs/2026-08-06-durable-player-history-design.md.
  */
 
 const MEDIUM_MS = 5 * 60 * 1000;
@@ -21,6 +29,7 @@ const MEDIUM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_CAP = 3650;
 const TIER_VERSION = 2;
+const DAILY_BACKUP_MS = 4 * 60 * 60 * 1000;
 
 function bucketStart(t) {
   return Math.floor(t / MEDIUM_MS) * MEDIUM_MS;
@@ -125,6 +134,13 @@ function foldDaily(rows, t, v, peers) {
   }
 }
 
+/** Rows from a `{v, rows}` envelope, or null if it is absent, unreadable or of
+ *  an older version — the three cases that legitimately call for a rebuild. */
+function envelopeRows(state) {
+  const o = state && state.status === 'ok' ? state.data : null;
+  return o && o.v === TIER_VERSION && Array.isArray(o.rows) ? o.rows : null;
+}
+
 class Series {
   constructor(dir, { maxFine = 2880 } = {}) {
     this.dir = dir;
@@ -132,30 +148,76 @@ class Series {
     this.fineFile = path.join(dir, 'cultwatch-history.json');
     this.mediumFile = path.join(dir, 'cultwatch-series-medium.json');
     this.dailyFile = path.join(dir, 'cultwatch-series-daily.json');
+    this.dailyBakFile = path.join(dir, 'cultwatch-series-daily.bak.json');
 
-    const rawFine = readJson(this.fineFile, []);
-    this.fine = Array.isArray(rawFine) ? rawFine : [];
+    // Surfaced through health() and rendered under the chart: a quarantined file
+    // should be visible, not inferred from a suspiciously short record.
+    this.damage = [];
+    this.recovered = false;
 
-    const med = readJson(this.mediumFile, null);
-    const day = readJson(this.dailyFile, null);
-    const valid = (o) => o && o.v === TIER_VERSION && Array.isArray(o.rows);
+    this._load();
+  }
 
-    if (valid(med) && valid(day)) {
-      this.medium = med.rows;
-      this.daily = day.rows;
-    } else {
-      // Rebuild BOTH derived tiers from fine so they can never disagree, then
-      // persist immediately — this is the one-time upgrade that rescues
-      // whatever the old 48h buffer still holds.
-      this.medium = [];
-      this.daily = [];
+  _load() {
+    const fine = readJsonState(this.fineFile);
+    if (fine.status === 'unreadable') this._quarantine(this.fineFile, fine.error);
+    this.fine = fine.status === 'ok' && Array.isArray(fine.data) ? fine.data : [];
+
+    const med = readJsonState(this.mediumFile);
+    const day = readJsonState(this.dailyFile);
+    if (med.status === 'unreadable') this._quarantine(this.mediumFile, med.error);
+    if (day.status === 'unreadable') this._quarantine(this.dailyFile, day.error);
+
+    const mediumRows = envelopeRows(med);
+    let dailyRows = envelopeRows(day);
+
+    // fine holds 48h at most, so rebuilding it can never reconstruct a record
+    // that is meant to last forever. The backup is consulted whenever the
+    // primary yields nothing — unreadable and absent are equally fatal here.
+    const bak = readJsonState(this.dailyBakFile);
+    const bakRows = envelopeRows(bak);
+    this.backupRows = bakRows ? bakRows.length : 0;
+    this.backupAt = bakRows && typeof bak.data.savedAt === 'number' ? bak.data.savedAt : 0;
+    this.backupDay = bakRows && bakRows.length ? bakRows[bakRows.length - 1].d : null;
+    if (!dailyRows && bakRows) {
+      dailyRows = bakRows;
+      this.recovered = true;
+    }
+
+    // Each tier rebuilds independently. Taking both down together is what let a
+    // single unreadable medium file destroy the daily record; they cover
+    // different spans by design and have never needed to agree.
+    this.medium = mediumRows || [];
+    this.daily = dailyRows || [];
+    if (!mediumRows || !dailyRows) {
       for (const p of this.fine) {
         if (!p || typeof p.t !== 'number' || typeof p.v !== 'number') continue;
-        foldMedium(this.medium, p.t, p.v);
-        foldDaily(this.daily, p.t, p.v, null);
+        if (!mediumRows) foldMedium(this.medium, p.t, p.v);
+        if (!dailyRows) foldDaily(this.daily, p.t, p.v, null);
       }
       this._persistDerived();
+    } else if (this.recovered) {
+      this._persistDerived();
     }
+  }
+
+  _quarantine(file, error) {
+    const moved = quarantine(file);
+    this.damage.push({
+      file: path.basename(file),
+      movedTo: moved ? path.basename(moved) : null,
+      error: error || null
+    });
+  }
+
+  /** What survived the last load, for the UI to state plainly. */
+  health() {
+    return {
+      damaged: this.damage.slice(),
+      recovered: this.recovered,
+      backupAt: this.backupAt || null,
+      backupRows: this.backupRows
+    };
   }
 
   push(point, peers) {
@@ -180,6 +242,27 @@ class Series {
 
     writeJson(this.fineFile, this.fine);
     this._persistDerived();
+    this._maybeBackup(t);
+  }
+
+  /**
+   * A second copy of the permanent record, written rarely on purpose. The
+   * primary is rewritten every poll, which is precisely why it is the file a
+   * crash catches mid-flight; a copy written once every few hours has long since
+   * reached the disk. Once per session, on each day rollover, then every four
+   * hours — comfortably above the four-a-day this was asked for.
+   */
+  _maybeBackup(t) {
+    const day = this.daily.length ? this.daily[this.daily.length - 1].d : null;
+    const due = !this.backupAt || day !== this.backupDay || t - this.backupAt >= DAILY_BACKUP_MS;
+    if (!due) return;
+    // Never trade a fuller safety copy for a thinner one: a session that starts
+    // from an empty record must not be able to erase what the backup still holds.
+    if (this.daily.length < this.backupRows) return;
+    if (!writeJson(this.dailyBakFile, { v: TIER_VERSION, savedAt: t, rows: this.daily })) return;
+    this.backupAt = t;
+    this.backupDay = day;
+    this.backupRows = this.daily.length;
   }
 
   _persistDerived() {
@@ -202,13 +285,21 @@ class Series {
     this.fine = [];
     this.medium = [];
     this.daily = [];
+    this.damage = [];
+    this.recovered = false;
     writeJson(this.fineFile, this.fine);
     this._persistDerived(); // writes v:2 envelopes, so clearing != re-migrating
+    // The backup is part of the record, and "clear" is meant to clear. Leaving
+    // it would restore everything the user just deleted on the next launch.
+    this.backupAt = Date.now();
+    this.backupDay = null;
+    this.backupRows = 0;
+    writeJson(this.dailyBakFile, { v: TIER_VERSION, savedAt: this.backupAt, rows: [] });
   }
 }
 
 module.exports = {
   Series, segments, coverageFor, foldMedium, foldDaily,
   bucketStart, dayKey, dayStartMs,
-  MEDIUM_MS, MEDIUM_RETENTION_MS, DAY_MS, DAILY_CAP, TIER_VERSION
+  MEDIUM_MS, MEDIUM_RETENTION_MS, DAY_MS, DAILY_CAP, TIER_VERSION, DAILY_BACKUP_MS
 };

@@ -281,20 +281,38 @@ function registerIpc() {
   });
 }
 
-app.whenReady().then(() => {
-  store = new Store(app.getPath('userData'));
-  Menu.setApplicationMenu(null);
-  registerIpc();
-  createWindow();
-  setupUpdater();
-  runPoll('startup');
-  runBackfill();
-  scheduleNext();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+/**
+ * One instance, one owner of the data files. Two copies would each hold their
+ * own in-memory series and overwrite the other's every minute, and the loser is
+ * whichever polled last — a slow corruption of exactly the record this build
+ * exists to protect. A second launch focuses the window that is already open.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    store = new Store(app.getPath('userData'));
+    Menu.setApplicationMenu(null);
+    registerIpc();
+    createWindow();
+    setupUpdater();
+    runPoll('startup');
+    runBackfill();
+    scheduleNext();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

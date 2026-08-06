@@ -19,14 +19,30 @@
 
 const PREFIX = 'cultwatch:';
 
-function readJson(file, fallback) {
+/**
+ * Mirrors the desktop contract exactly, including the distinction the desktop
+ * version was missing: an absent key means "first run", a value that will not
+ * parse means "the record is still there and must not be written over".
+ * history.js is shared verbatim and relies on the difference.
+ */
+function readJsonState(file) {
+  let raw;
   try {
-    const raw = localStorage.getItem(PREFIX + file);
-    if (raw == null) return fallback;
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
+    raw = localStorage.getItem(PREFIX + file);
+  } catch (err) {
+    return { status: 'unreadable', data: null, error: err.message || String(err) };
   }
+  if (raw == null) return { status: 'missing', data: null, error: null };
+  try {
+    return { status: 'ok', data: JSON.parse(raw), error: null };
+  } catch (err) {
+    return { status: 'unreadable', data: null, error: err.message || String(err) };
+  }
+}
+
+function readJson(file, fallback) {
+  const r = readJsonState(file);
+  return r.status === 'ok' ? r.data : fallback;
 }
 
 function writeJson(file, data) {
@@ -43,6 +59,25 @@ function writeJson(file, data) {
   }
 }
 
+/**
+ * Move an unparseable value aside rather than overwriting it, so the bytes
+ * survive for diagnosis. Quota is the constraint here, not corruption, so a
+ * failed copy is not worth fighting: the live key is rewritten by the next poll
+ * either way, and the caller reports the loss honestly.
+ */
+function quarantine(file, stamp = Date.now()) {
+  const dest = `${file}.corrupt-${stamp}`;
+  try {
+    const raw = localStorage.getItem(PREFIX + file);
+    if (raw == null) return null;
+    localStorage.setItem(PREFIX + dest, raw);
+    localStorage.removeItem(PREFIX + file);
+    return dest;
+  } catch {
+    return null;
+  }
+}
+
 /** Total bytes held under our prefix — surfaced in the UI so a filling quota is
  *  visible before it starts costing us data. */
 function usageBytes() {
@@ -54,4 +89,4 @@ function usageBytes() {
   return n;
 }
 
-module.exports = { readJson, writeJson, usageBytes };
+module.exports = { readJson, readJsonState, writeJson, quarantine, usageBytes };

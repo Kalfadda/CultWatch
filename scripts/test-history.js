@@ -10,8 +10,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { readJson, writeJson } = require('../electron/atomic');
-const { Series, segments, dayKey, bucketStart, coverageFor } = require('../electron/history');
+const { readJson, readJsonState, writeJson, quarantine } = require('../electron/atomic');
+const { Series, segments, dayKey, bucketStart, coverageFor, DAILY_BACKUP_MS } = require('../electron/history');
 const { EventLog } = require('../electron/events');
 
 let pass = 0, fail = 0;
@@ -35,6 +35,36 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cw-hist-'));
   ok('writeJson leaves no .tmp behind', !fs.readdirSync(tmp).some((n) => n.endsWith('.tmp')));
   writeJson(path.join(tmp, 'nested', 'deep', 'b.json'), [1, 2, 3]);
   ok('writeJson creates missing directories', readJson(path.join(tmp, 'nested', 'deep', 'b.json'), []).length === 3);
+}
+
+// ============================================================
+// 1b. A failed read must say *why* it failed
+// ============================================================
+// Collapsing "missing" and "unreadable" into one fallback value is what let a
+// single file corrupted by an unclean shutdown wipe the permanent record: the
+// empty result was rebuilt into the tiers and written straight back over it.
+{
+  const dir = fs.mkdtempSync(path.join(tmp, 'state-'));
+  const f = path.join(dir, 'x.json');
+  ok('readJsonState reports a missing file as missing', readJsonState(f).status === 'missing');
+  writeJson(f, { a: 1 });
+  const good = readJsonState(f);
+  ok('readJsonState reports a good file as ok', good.status === 'ok' && good.data.a === 1);
+
+  fs.writeFileSync(f, '{ not json');
+  ok('readJsonState reports garbage as unreadable', readJsonState(f).status === 'unreadable');
+
+  // The two shapes an interrupted write actually leaves behind on NTFS.
+  fs.writeFileSync(f, '');
+  ok('an empty file is unreadable, not valid emptiness', readJsonState(f).status === 'unreadable');
+  fs.writeFileSync(f, Buffer.alloc(64));
+  ok('a NUL-filled file is unreadable', readJsonState(f).status === 'unreadable');
+
+  const moved = quarantine(f, 12345);
+  ok('quarantine moves the file aside', moved === f + '.corrupt-12345' && fs.existsSync(moved));
+  ok('quarantine leaves the original path free', !fs.existsSync(f));
+  ok('quarantine preserves the bytes', fs.readFileSync(moved).length === 64);
+  ok('quarantine of a missing file returns null', quarantine(f, 1) === null);
 }
 
 // ============================================================
@@ -130,11 +160,119 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cw-hist-'));
   const again = new Series(dir, { maxFine: 2880 });
   ok('migration does not double-count on reopen', again.getDaily().reduce((n, d) => n + d.n, 0) === 600);
 
-  // A half-migrated state (one derived file lost) rebuilds both, not one.
+  // A half-migrated state (one derived file lost) rebuilds the lost tier and
+  // leaves the surviving one alone. Rebuilding both is what destroyed the daily
+  // record when only the medium file was damaged.
   fs.unlinkSync(path.join(dir, 'cultwatch-series-medium.json'));
   const rebuilt = new Series(dir, { maxFine: 2880 });
-  ok('a missing derived tier rebuilds both from fine',
+  ok('a missing derived tier rebuilds without discarding the other',
     rebuilt.getMedium().length === 120 && rebuilt.getDaily().reduce((n, d) => n + d.n, 0) === 600);
+}
+
+// ============================================================
+// 6b. An unreadable file must never cost more than itself
+// ============================================================
+// The bug this whole section exists for: an unclean shutdown on 2026-08-06 left
+// the files that are rewritten every minute empty, the empty read was taken for
+// a first run, and the rebuild was written over a month of daily rollups.
+const DAY = 86400000;
+function seedDays(dir, days, opts) {
+  const s = new Series(dir, opts || { maxFine: 2880 });
+  const t0 = new Date('2026-07-01T12:00:00').getTime();
+  for (let d = 0; d < days; d++) {
+    for (let i = 0; i < 10; i++) s.push({ t: t0 + d * DAY + i * 60000, v: 100 + i });
+  }
+  return s;
+}
+
+{
+  const dir = fs.mkdtempSync(path.join(tmp, 'dur-fine-'));
+  seedDays(dir, 3);
+  const fineFile = path.join(dir, 'cultwatch-history.json');
+
+  fs.writeFileSync(fineFile, ''); // what an interrupted write leaves behind
+  const after = new Series(dir, { maxFine: 2880 });
+  ok('a corrupt fine tier does not take the daily record with it', after.getDaily().length === 3);
+  ok('a corrupt fine tier does not take the medium tier with it', after.getMedium().length === 6);
+  ok('fine itself starts empty', after.getFine().length === 0);
+  ok('the corrupt file is quarantined, not overwritten',
+    fs.readdirSync(dir).some((n) => n.startsWith('cultwatch-history.json.corrupt-')));
+  ok('the damage is reported rather than swallowed',
+    after.health().damaged.length === 1 && after.health().damaged[0].file === 'cultwatch-history.json');
+}
+
+// ============================================================
+// 6c. The daily record is recovered from its backup
+// ============================================================
+{
+  const dir = fs.mkdtempSync(path.join(tmp, 'dur-bak-'));
+  seedDays(dir, 3);
+  const bakFile = path.join(dir, 'cultwatch-series-daily.bak.json');
+  ok('a backup is written alongside the record', fs.existsSync(bakFile));
+
+  // The realistic crash: every file that was being rewritten comes back empty.
+  fs.writeFileSync(path.join(dir, 'cultwatch-series-daily.json'), Buffer.alloc(32));
+  fs.writeFileSync(path.join(dir, 'cultwatch-history.json'), '');
+
+  const after = new Series(dir, { maxFine: 2880 });
+  ok('the daily record is restored from the backup', after.getDaily().length === 3);
+  ok('the recovery is reported', after.health().recovered === true);
+  // The backup is deliberately allowed to lag by up to four hours — the last
+  // day comes back thinner, which is the whole point of it being written rarely.
+  ok('the restored record is the backup, staleness and all', after.getDaily()[2].n === 1);
+  ok('the corrupt daily file is quarantined',
+    fs.readdirSync(dir).some((n) => n.startsWith('cultwatch-series-daily.json.corrupt-')));
+
+  fs.unlinkSync(bakFile);
+  ok('the restored record was written back to the primary',
+    new Series(dir, { maxFine: 2880 }).getDaily().length === 3);
+}
+
+// ============================================================
+// 6d. Cadence: rarely, and never shrinking
+// ============================================================
+{
+  const dir = fs.mkdtempSync(path.join(tmp, 'dur-cad-'));
+  const bakFile = path.join(dir, 'cultwatch-series-daily.bak.json');
+  const s = new Series(dir, { maxFine: 5000 });
+  const t0 = new Date('2026-07-01T08:00:00').getTime();
+
+  s.push({ t: t0, v: 10 });
+  ok('the backup is written on the first push of a session', readJson(bakFile, {}).savedAt === t0);
+  s.push({ t: t0 + 60000, v: 11 });
+  ok('the backup is not rewritten on every push', readJson(bakFile, {}).savedAt === t0);
+  s.push({ t: t0 + DAILY_BACKUP_MS, v: 12 });
+  ok('the backup is refreshed after four hours', readJson(bakFile, {}).savedAt === t0 + DAILY_BACKUP_MS);
+  s.push({ t: t0 + DAY, v: 13 });
+  ok('the backup is refreshed on a day rollover', readJson(bakFile, {}).rows.length === 2);
+}
+
+{
+  // A primary that reads fine but holds less than the backup: a session started
+  // from a thin record must not be able to erase the fuller safety copy.
+  const dir = fs.mkdtempSync(path.join(tmp, 'dur-shrink-'));
+  const bakFile = path.join(dir, 'cultwatch-series-daily.bak.json');
+  const thin = [{ d: '2026-07-03', peak: 5, min: 5, sum: 5, n: 1, first: 1, last: 1, peers: {} }];
+  const fat = ['2026-07-01', '2026-07-02', '2026-07-03'].map((d) => ({ d, peak: 9, min: 9, sum: 9, n: 1, first: 1, last: 1, peers: {} }));
+  writeJson(path.join(dir, 'cultwatch-series-daily.json'), { v: 2, rows: thin });
+  writeJson(path.join(dir, 'cultwatch-series-medium.json'), { v: 2, rows: [] });
+  writeJson(bakFile, { v: 2, savedAt: 0, rows: fat });
+
+  const s = new Series(dir, { maxFine: 100 });
+  ok('a readable primary is not second-guessed', s.getDaily().length === 1);
+  s.push({ t: new Date('2026-07-03T09:00:00').getTime(), v: 7 });
+  ok('the backup is never traded for a thinner copy', readJson(bakFile, {}).rows.length === 3);
+}
+
+{
+  // Clearing has to clear the backup too, or the next launch restores exactly
+  // what the user just asked to delete.
+  const dir = fs.mkdtempSync(path.join(tmp, 'dur-clear-'));
+  seedDays(dir, 2).clear();
+  ok('clear empties the backup as well',
+    readJson(path.join(dir, 'cultwatch-series-daily.bak.json'), null).rows.length === 0);
+  ok('a cleared series does not restore itself on reopen',
+    new Series(dir, { maxFine: 2880 }).getDaily().length === 0);
 }
 
 // ============================================================
