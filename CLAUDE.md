@@ -58,11 +58,19 @@ auto-updating.** A merged commit reaches nobody.
 4. `npm run mobile:apk`, verify, then `gh release upload vX.Y.Z <apk> --clobber`.
 5. `git push`.
 
+`npm run release` needs `GH_TOKEN` (`GH_TOKEN=$(gh auth token)` works); without it the installer
+still builds but nothing is uploaded and `latest.yml` is never regenerated. Gradle needs
+`JAVA_HOME=C:/Users/Kaleb/android-tools/jdk/jdk-17.0.19+10` — the same path recorded in
+`android-tools/JAVA_HOME.txt`. The apk scripts invoke `.\gradlew.bat`, not `gradlew.bat`,
+because `NoDefaultCurrentDirectoryInExePath=1` stops cmd resolving an executable in the
+working directory.
+
 **Verify every APK before publishing** — a debug build was published once:
 
 ```bash
 apksigner verify app-release.apk                      # must verify
 aapt2 dump xmltree --file AndroidManifest.xml <apk> | grep -i debuggable   # must be empty
+apksigner verify --print-certs <old.apk> <new.apk>    # signer SHA-256 must match the last release
 ```
 
 A debug APK is `debuggable=true` (anyone can `run-as` and read user data) and signed with the
