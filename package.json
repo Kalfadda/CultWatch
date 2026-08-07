@@ -1,7 +1,7 @@
 {
   "name": "cultwatch",
   "productName": "CultWatch",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Live launch-day situation room for Happy's Humble Burger Cult",
   "main": "electron/main.js",
   "author": "Scythe Dev Team",
@@ -10,11 +10,23 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "check": "node scripts/selftest.js",
+    "dev:trends": "electron . --dev --trends",
+    "check": "npm run test:unit && node scripts/selftest.js",
+    "test:unit": "node scripts/test-alerts.js && node scripts/test-history.js && node scripts/test-reviews.js && node scripts/test-attribution.js && node scripts/test-config.js && node scripts/test-tinybuild.js && node scripts/test-mobile.js",
+    "test:alerts": "node scripts/test-alerts.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:linux": "electron-builder --linux",
+    "release": "electron-builder --publish always",
+    "mobile:build": "node scripts/build-mobile.js",
+    "mobile:sync": "node scripts/build-mobile.js && cd mobile && npx cap sync android",
+    "mobile:apk": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && .\\gradlew.bat assembleRelease",
+    "mobile:apk:debug": "node scripts/build-mobile.js && cd mobile && npx cap sync android && cd android && .\\gradlew.bat assembleDebug",
+    "mobile:layout": "node scripts/check-mobile-layout.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^32.2.0",
@@ -26,6 +38,14 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kalfadda",
+        "repo": "cultwatch",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "electron/**/*",
       "renderer/**/*",

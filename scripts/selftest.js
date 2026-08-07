@@ -38,6 +38,7 @@ function line(label, ok, detail) {
   line('players', snap.status.players.status === 'ok', snap.players.available ? `${snap.players.current} online` : 'no live data yet (pre-launch expected)');
   line('reviews', snap.status.reviews.status === 'ok', snap.reviews ? `${snap.reviews.scoreDesc} — ${snap.reviews.total} reviews` : snap.status.reviews.error);
   line('news', snap.status.news.status === 'ok', `${(snap.news || []).length} items` + ((snap.news[0]) ? ` · latest: "${snap.news[0].title.slice(0, 48)}"` : ''));
+  line('web', snap.status.web.status === 'ok', `${(snap.web || []).length} articles` + ((snap.web[0]) ? ` · "${snap.web[0].title.slice(0, 44)}" (${snap.web[0].source})` : ''));
 
   // Discovery (may warn on locked-down networks)
   const soft = (name) => {
@@ -51,6 +52,33 @@ function line(label, ok, detail) {
   soft('twitch');
   soft('youtube');
   soft('x');
+  soft('peers');
+  soft('tinybuild');
+
+  // Derived analysis
+  const pr = snap.peers || { rows: [] };
+  const named = pr.rows.filter((r) => r.available && !r.us).length;
+  line('peer ranking', pr.ourRank != null || !pr.rows.length,
+    pr.ourRank ? `we are #${pr.ourRank} of ${pr.rows.length} (${named} peers reporting)` : 'no player data to rank yet');
+
+  const tb = snap.tinybuild;
+  line('cohort ranking', !tb || tb.momentum.ourRank != null || !tb.cohortSize,
+    tb && tb.cohortSize
+      ? `${tb.cohortSize} titles · momentum #${tb.momentum.ourRank} of ${tb.momentum.ourOf}` +
+        ` · reception #${tb.reception.ourRank} of ${tb.reception.ourOf}` +
+        (tb.flagged ? ` · ${tb.flagged} outside window` : '')
+      : 'cohort empty or disabled');
+
+  const ri = snap.reviewIntel || { coverage: {}, themes: [] };
+  const cov = ri.coverage || {};
+  line('reviewIntel', !!ri.coverage,
+    `${cov.total || 0} stored · ${cov.english || 0} english · ${(ri.themes || []).length} themes` +
+    ((ri.themes || [])[0] ? ` · top: ${ri.themes[0].label} (${ri.themes[0].count})` : ''));
+
+  const tr = snap.trends || { days: [] };
+  line('trends', Array.isArray(tr.days),
+    `${tr.days.length} day rollup(s)` +
+    (tr.retention ? ` · ${tr.retention.pct}% of ${tr.retention.referenceLabel}` : ' · no reference yet'));
 
   // History persistence check
   const before = store.getHistory().length;
@@ -75,5 +103,7 @@ function count(snap, name) {
   if (name === 'twitch') return (snap.twitch && snap.twitch.live || []).length;
   if (name === 'youtube') return (snap.youtube && snap.youtube.videos || []).length;
   if (name === 'x') return (snap.x && snap.x.posts || []).length;
+  if (name === 'peers') return (snap.peers && snap.peers.rows || []).length;
+  if (name === 'tinybuild') return (snap.tinybuild && snap.tinybuild.cohortSize) || 0;
   return 0;
 }

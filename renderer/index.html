@@ -24,21 +24,42 @@
         <div class="ls-value" id="countdown">—</div>
       </div>
 
+      <div class="view-switch" id="viewSwitch">
+        <button class="vs-btn active" data-view="live" title="Today's situation room">LIVE</button>
+        <button class="vs-btn" data-view="trends" title="Day-over-day, complaints, peers">TRENDS</button>
+        <button class="vs-btn" data-view="tinybuild" title="Us vs the publisher's recent releases">TINYBUILD</button>
+      </div>
+
       <div class="topbar-right">
         <div class="conn" id="sourceStatus" title="Source health"></div>
         <div class="updated">
           <span class="live-dot" id="liveDot"></span>
           <span id="lastUpdated">connecting…</span>
         </div>
+        <button class="btn update-pill hidden" id="updatePill" title="A new version is ready">⬇ <span id="updatePillText">Update ready — Restart</span></button>
         <button class="btn ghost" id="refreshBtn" title="Refresh now (⌘/Ctrl+R)">
           <span class="ico" id="refreshIco">⟳</span> Refresh
         </button>
+        <div class="bell-wrap">
+          <button class="btn ghost icon" id="bellBtn" title="Alerts">🔔<span class="badge hidden" id="alertBadge">0</span></button>
+          <div class="alert-center hidden" id="alertCenter">
+            <div class="ac-head">
+              <span>Alert Center</span>
+              <div class="ac-tools">
+                <button class="link-btn" id="testAlertBtn" title="Send a test notification">test</button>
+                <button class="link-btn" id="muteBtn" title="Mute notifications">🔊 on</button>
+                <button class="link-btn" id="clearAlertsBtn">clear</button>
+              </div>
+            </div>
+            <div class="ac-list" id="alertList"></div>
+          </div>
+        </div>
         <button class="btn ghost icon" id="settingsBtn" title="Settings">⚙</button>
       </div>
     </header>
 
-    <!-- ===== Main dashboard ===== -->
-    <main class="board" id="board">
+    <!-- ===== Main dashboard (LIVE) ===== -->
+    <main class="board" id="boardLive">
       <!-- KPI row -->
       <section class="kpis" id="kpis"></section>
 
@@ -90,7 +111,8 @@
             <h2>News, Videos &amp; Reviews</h2>
             <div class="tabs" id="mediaTabs">
               <button class="tab active" data-feed="all">All</button>
-              <button class="tab" data-feed="news">News</button>
+              <button class="tab" data-feed="web"><span class="src-dot web"></span>Web</button>
+              <button class="tab" data-feed="news">Steam</button>
               <button class="tab" data-feed="youtube"><span class="src-dot yt"></span>YouTube</button>
               <button class="tab" data-feed="reviews">Reviews</button>
             </div>
@@ -105,6 +127,88 @@
       </footer>
     </main>
 
+    <!-- ===== Trends dashboard ===== -->
+    <main class="board hidden" id="boardTrends">
+      <section class="kpis" id="trendKpis"></section>
+
+      <section class="panel chart-panel">
+        <div class="panel-head">
+          <h2>Player History</h2>
+          <div class="panel-tools">
+            <span class="chip" id="trendTierChip"></span>
+            <div class="tabs" id="trendRange">
+              <button class="tab active" data-range="24h">24h</button>
+              <button class="tab" data-range="7d">7d</button>
+              <button class="tab" data-range="all">All</button>
+            </div>
+          </div>
+        </div>
+        <div class="chart-wrap" id="trendChart"></div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Peak by Day</h2>
+            <div class="panel-tools"><span class="chip" id="retentionChip">—</span></div>
+          </div>
+          <div class="day-bars" id="dayBars"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Top Complaints</h2>
+            <div class="panel-tools"><span class="chip" id="complaintChip">—</span></div>
+          </div>
+          <div class="panel-body" id="complaints"></div>
+        </div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head"><h2>Review Velocity &amp; Sentiment</h2></div>
+          <div class="panel-body" id="velocityPanel"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Peer Benchmark</h2>
+            <div class="panel-tools"><span class="chip" id="peerChip">—</span></div>
+          </div>
+          <div class="panel-body" id="peerPanel"></div>
+        </div>
+      </section>
+
+      <footer class="board-foot">
+        <span id="trendFoot"></span>
+        <span class="foot-brand">history before this build was installed is not recoverable</span>
+      </footer>
+    </main>
+
+    <!-- ===== Publisher cohort dashboard ===== -->
+    <main class="board hidden" id="boardTinybuild">
+      <section class="kpis" id="tbKpis"></section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2 id="tbHead">Publisher cohort</h2>
+          <div class="panel-tools"><span class="chip" id="tbChip">—</span></div>
+        </div>
+        <div class="tb-read hidden" id="tbRead"></div>
+      </section>
+
+      <section class="grid-2 feeds">
+        <div class="panel">
+          <div class="panel-head"><h2>Momentum <span class="count">live players</span></h2></div>
+          <div id="tbMomentum"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Reception <span class="count">positive %</span></h2></div>
+          <div id="tbReception"></div>
+        </div>
+      </section>
+    </main>
+
     <!-- ===== Settings drawer ===== -->
     <div class="drawer-scrim" id="drawerScrim"></div>
     <aside class="drawer" id="settingsDrawer" aria-hidden="true">
@@ -114,6 +218,7 @@
       </div>
       <div class="drawer-body" id="settingsBody"></div>
       <div class="drawer-foot">
+        <button class="btn ghost" id="checkUpdatesBtn" title="Check for a new version">⬇ Updates</button>
         <span class="save-hint" id="saveHint"></span>
         <button class="btn primary" id="saveSettings">Save &amp; Refresh</button>
       </div>
@@ -121,6 +226,9 @@
 
     <div class="toast" id="toast"></div>
 
+    <!-- trends.js first: app.js calls boot() at end of file. -->
+    <script src="tinybuild.js"></script>
+    <script src="trends.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

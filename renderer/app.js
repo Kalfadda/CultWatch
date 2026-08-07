@@ -1,15 +1,20 @@
 'use strict';
 
-/* global cultwatch */
+/* global cultwatch, initTrends, renderTrends, resizeTrendChart, renderTinybuild */
 
 // ============================================================
 // State
 // ============================================================
 let snapshot = null;
 let config = null;
+let currentView = 'live';
 let feedFilter = 'all';
 let mediaFilter = 'all';
 let countdownTimer = null;
+let alertLog = [];
+let unreadAlerts = 0;
+let soundMuted = false;
+let audioCtx = null;
 const $ = (sel) => document.querySelector(sel);
 const el = (id) => document.getElementById(id);
 
@@ -50,6 +55,7 @@ async function boot() {
   else renderSkeleton();
   buildSettings();
   wireUi();
+  initTrends();
   startCountdown();
 
   cultwatch.onDataUpdate((snap) => {
@@ -59,6 +65,12 @@ async function boot() {
   });
   cultwatch.onPollStart(() => setBusy(true));
   cultwatch.onPollError((e) => { setBusy(false); toast(e.message || 'Refresh failed', true); });
+  cultwatch.onAlerts((list) => handleAlerts(list));
+  cultwatch.onUpdateStatus((s) => handleUpdateStatus(s));
+
+  soundMuted = await cultwatch.getOsMute();
+  updateMuteBtn();
+  renderAlertList();
 }
 
 function setBusy(on) {
@@ -85,6 +97,20 @@ function render(s) {
   renderSourceStatus(s);
   renderFoot(s);
   updateCountdown();
+  if (currentView === 'trends') renderTrends(s);
+  if (currentView === 'tinybuild') renderTinybuild(s);
+}
+
+// ---- View switching (Live board stays exactly as it was) ----
+function setView(v) {
+  currentView = v;
+  el('boardLive').classList.toggle('hidden', v !== 'live');
+  el('boardTrends').classList.toggle('hidden', v !== 'trends');
+  el('boardTinybuild').classList.toggle('hidden', v !== 'tinybuild');
+  el('viewSwitch').querySelectorAll('.vs-btn')
+    .forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+  if (v === 'trends' && snapshot) renderTrends(snapshot);
+  if (v === 'tinybuild' && snapshot) renderTinybuild(snapshot);
 }
 
 function timeOfDay(ms) {
@@ -178,12 +204,14 @@ function renderChart(s) {
   const peak = s.players && s.players.peakSession;
   el('playersPeakChip').textContent = 'peak ' + (peak != null ? fmt(peak) : '—');
 
+  const note = storageNote(s.storage);
+
   if (history.length < 2) {
     wrap.innerHTML = `<div class="chart-empty">${
       s.game && s.game.comingSoon
         ? 'Player telemetry begins the moment the game goes live.<br>Chart fills in automatically on launch day.'
         : 'Collecting player samples… the line appears after a couple of refreshes.'
-    }</div>`;
+    }</div>${note}`;
     return;
   }
 
@@ -199,12 +227,33 @@ function renderChart(s) {
   const X = (t) => padL + ((t - minX) / spanX) * (W - padL - padR);
   const Y = (v) => H - padB - (v / maxY) * (H - padT - padB);
 
-  let path = '', area = '';
-  history.forEach((p, i) => {
-    const x = X(p.t), y = Y(p.v == null ? 0 : p.v);
-    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
-  });
-  area = path + `L${X(maxX).toFixed(1)} ${H - padB} L${X(minX).toFixed(1)} ${H - padB} Z`;
+  // Break the line wherever the app was not running. History now spans days, so
+  // a single continuous path would run from yesterday evening to this afternoon
+  // and assert player counts that were never sampled. The threshold arrives from
+  // the main process; all that is decided here is where the ink stops.
+  const gapMs = (s.players && s.players.gapMs) || Infinity;
+  const runs = [[history[0]]];
+  for (let i = 1; i < history.length; i++) {
+    if (history[i].t - history[i - 1].t > gapMs) runs.push([]);
+    runs[runs.length - 1].push(history[i]);
+  }
+
+  let lines = '', areas = '', orphans = '';
+  for (const run of runs) {
+    const yOf = (p) => Y(p.v == null ? 0 : p.v);
+    if (run.length === 1) {
+      // A lone sample between two gaps has no line to be part of, and dropping
+      // it would quietly hide a session that really happened.
+      orphans += `<circle cx="${X(run[0].t).toFixed(1)}" cy="${yOf(run[0]).toFixed(1)}" r="2" class="orphan"/>`;
+      continue;
+    }
+    let d = '';
+    run.forEach((p, i) => {
+      d += (i === 0 ? 'M' : 'L') + X(p.t).toFixed(1) + ' ' + yOf(p).toFixed(1) + ' ';
+    });
+    lines += `<path d="${d}" class="line"/>`;
+    areas += `<path d="${d}L${X(run[run.length - 1].t).toFixed(1)} ${H - padB} L${X(run[0].t).toFixed(1)} ${H - padB} Z" fill="url(#areaGrad)"/>`;
+  }
 
   // Y gridlines
   const ticks = niceTicks(maxY, 4);
@@ -215,10 +264,18 @@ function renderChart(s) {
     grid += `<text x="${padL - 8}" y="${y + 4}" class="ylab">${fmtCompact(t)}</text>`;
   });
 
-  // X labels (start / mid / end)
-  const xlabels = [minX, minX + spanX / 2, maxX].map((t) => {
+  // X labels (start / mid / end). Once the span passes a day a bare clock time
+  // is ambiguous — "02:00" could be any of three mornings.
+  const multiDay = spanX > 24 * 60 * 60 * 1000;
+  // The end labels are anchored inwards: centred on the last sample, a date runs
+  // off the right edge of the viewBox and gets clipped.
+  const anchors = ['start', 'middle', 'end'];
+  const xlabels = [minX, minX + spanX / 2, maxX].map((t, i) => {
     const d = new Date(t);
-    return `<text x="${X(t)}" y="${H - 8}" class="xlab" text-anchor="middle">${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</text>`;
+    const text = multiDay
+      ? `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit' })}`
+      : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `<text x="${X(t)}" y="${H - 8}" class="xlab" text-anchor="${anchors[i]}">${text}</text>`;
   }).join('');
 
   const last = history[history.length - 1];
@@ -238,15 +295,29 @@ function renderChart(s) {
         .ylab { fill: #7d879c; font: 11px var(--mono, monospace); text-anchor: end; }
         .xlab { fill: #7d879c; font: 11px var(--mono, monospace); }
         .line { fill: none; stroke: #ff7a1a; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+        .orphan { fill: #ff7a1a; }
       </style>
       ${grid}
       ${xlabels}
-      <path d="${area}" fill="url(#areaGrad)"/>
-      <path d="${path}" class="line"/>
+      ${areas}
+      ${lines}
+      ${orphans}
       ${peakPoint ? `<circle cx="${X(peakPoint.t)}" cy="${Y(peakPoint.v)}" r="3.5" fill="#ff3b57"/>` : ''}
       <circle cx="${lastX}" cy="${lastY}" r="4" fill="#ff7a1a"/>
       <circle cx="${lastX}" cy="${lastY}" r="8" fill="#ff7a1a" opacity="0.25"/>
-    </svg>`;
+    </svg>${note}`;
+}
+
+/** A file that failed to load has to be stated, not implied. The symptom is a
+ *  short record, which is indistinguishable from a quiet week. */
+function storageNote(storage) {
+  const damaged = (storage && storage.damaged) || [];
+  if (!damaged.length) return '';
+  const files = damaged.map((d) => d.file).join(', ');
+  const outcome = storage.recovered
+    ? 'the day-by-day record was restored from its backup'
+    : 'whatever they held is gone';
+  return `<div class="chart-note">⚠ Unreadable on load: ${files} — quarantined rather than overwritten, and ${outcome}.</div>`;
 }
 
 function niceTicks(max, count) {
@@ -359,7 +430,9 @@ function renderCommunityFeed(s) {
 
 function communityEmpty(s) {
   const x = s.x || {};
+  const st = s.status || {};
   const notes = [];
+  if (st.reddit && st.reddit.status === 'error') notes.push('Reddit needs a free Client ID (Settings)');
   if (!x.enabled && s.config.sources.x) notes.push('X needs a Bearer token (Settings)');
   return 'No community posts matched yet.<br>New mentions appear here in real time.' +
     (notes.length ? `<br><span style="color:var(--muted-2);font-size:11px">${notes.join(' · ')}</span>` : '');
@@ -368,6 +441,10 @@ function communityEmpty(s) {
 // ---- Media feed (news + youtube + reviews) ----
 function renderMediaFeed(s) {
   const items = [];
+  (s.web || []).forEach((w) => items.push({
+    src: 'web', srcColor: 'var(--web)', icon: '🌐', time: w.date,
+    author: w.source, title: w.title, text: '', url: w.url, meta: []
+  }));
   (s.news || []).forEach((n) => items.push({
     src: 'news', srcColor: 'var(--accent)', icon: '📰', time: n.date,
     author: n.author, title: n.title, text: n.summary, url: n.url, meta: [n.source]
@@ -387,7 +464,7 @@ function renderMediaFeed(s) {
 
   const filtered = mediaFilter === 'all' ? items : items.filter((i) => i.src === mediaFilter);
   filtered.sort((a, b) => (b.time || 0) - (a.time || 0));
-  renderFeedInto('mediaFeed', filtered, 'No news, videos, or reviews yet.<br>Steam announcements show here without any setup.');
+  renderFeedInto('mediaFeed', filtered, 'No news, videos, or reviews yet.<br>Web news &amp; Steam announcements show here without any setup.');
 }
 
 function renderFeedInto(id, items, emptyHtml) {
@@ -438,7 +515,8 @@ function installImageFallbacks() {
 function renderSourceStatus(s) {
   const map = s.status || {};
   const order = [['players', 'Steam players'], ['reviews', 'Reviews'], ['news', 'Steam news'],
-    ['reddit', 'Reddit'], ['bluesky', 'Bluesky'], ['twitch', 'Twitch'], ['youtube', 'YouTube'], ['x', 'X']];
+    ['web', 'Web / News'], ['reddit', 'Reddit'], ['bluesky', 'Bluesky'], ['twitch', 'Twitch'],
+    ['youtube', 'YouTube'], ['x', 'X']];
   el('sourceStatus').innerHTML = order.map(([k, name]) => {
     const st = map[k] || { status: 'off' };
     const title = `${name}: ${st.status}${st.error ? ' — ' + st.error : ''}${st.ms ? ` (${st.ms}ms)` : ''}`;
@@ -506,6 +584,10 @@ const SETTINGS_SCHEMA = [
   { group: 'Steam (optional key)', fields: [
     { key: 'steamApiKey', label: 'Steam Web API key', type: 'password', hint: 'Optional — core Steam data works without it. Get one at <a href="https://steamcommunity.com/dev/apikey">steamcommunity.com/dev/apikey</a>' }
   ]},
+  { group: 'Reddit', fields: [
+    { key: 'redditClientId', label: 'Reddit Client ID', type: 'text', hint: 'Reddit now requires auth. Create a free app at <a href="https://www.reddit.com/prefs/apps">reddit.com/prefs/apps</a> — pick type <b>installed app</b>, set redirect URI to http://localhost, then paste the ID shown under the app name. Client ID alone is enough.' },
+    { key: 'redditClientSecret', label: 'Reddit Client Secret (only for "web app" type)', type: 'password', hint: 'Leave blank for an "installed app". Only needed if you registered a "web app".' }
+  ]},
   { group: 'Twitch', fields: [
     { key: 'twitchClientId', label: 'Twitch Client ID', type: 'text', hint: 'Create an app at <a href="https://dev.twitch.tv/console/apps">dev.twitch.tv/console/apps</a>' },
     { key: 'twitchClientSecret', label: 'Twitch Client Secret', type: 'password' }
@@ -515,8 +597,42 @@ const SETTINGS_SCHEMA = [
   ]},
   { group: 'X / Twitter (optional)', fields: [
     { key: 'xBearerToken', label: 'X API Bearer token', type: 'password', hint: 'Requires a paid X API tier. Bluesky covers free social.' }
+  ]},
+  { group: 'Peer benchmark', fields: [
+    { key: 'peers', label: 'Peer games — one "appId: Name" per line', type: 'lines',
+      hint: 'Keyless: uses the same public player-count endpoint as your own game. A title that reports no live players shows as "no data" rather than an error.' }
+  ]},
+  { group: 'Publisher cohort', fields: [
+    { key: 'tinybuild.cohort', label: 'Cohort games — one "appId: Name" per line', type: 'lines',
+      hint: 'Titles from your publisher released recently. Hand-maintained: anything released longer ago than the window below is flagged ⚠ rather than dropped, so a stale list stays visible instead of quietly skewing the ranking.' },
+    { key: 'tinybuild.label', label: 'Publisher name', type: 'text' },
+    { key: 'tinybuild.windowDays', label: 'Window (days)', type: 'days' }
+  ]},
+  { group: 'Complaint taxonomy', fields: [
+    { key: 'reviewTaxonomy', label: 'Themes — one "Label: keyword, keyword" per line', type: 'textarea',
+      hint: 'Clusters negative reviews. Leave blank for the built-in set. Keywords match literally (English reviews only).' }
   ]}
 ];
+
+/** Reads "a.b.c" out of a config object. Settings keys are mostly flat, but the
+ *  publisher cohort is nested, and flattening it in the store would just move the
+ *  problem into the poller. */
+function getPath(obj, key) {
+  return key.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+/** Writes "a.b.c" into a patch, creating intermediate objects. The store deep-
+ *  merges, so a partial nested patch leaves its siblings alone. */
+function setPath(obj, key, value) {
+  const parts = key.split('.');
+  const last = parts.pop();
+  let cur = obj;
+  for (const p of parts) {
+    if (typeof cur[p] !== 'object' || cur[p] === null) cur[p] = {};
+    cur = cur[p];
+  }
+  cur[last] = value;
+}
 
 function buildSettings() {
   const body = el('settingsBody');
@@ -528,40 +644,99 @@ function buildSettings() {
   SETTINGS_SCHEMA.forEach((g) => {
     html += `<div class="set-group"><h3>${esc(g.group)}</h3>`;
     g.fields.forEach((f) => {
-      let val = config ? config[f.key] : '';
+      let val = config ? getPath(config, f.key) : '';
       if (f.type === 'list') val = Array.isArray(val) ? val.join(', ') : (val || '');
-      const inputType = f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text';
+      if (f.type === 'lines') {
+        val = Array.isArray(val) ? val.map((p) => `${p.appId}: ${p.name || ''}`).join('\n') : '';
+      }
+      if (f.type === 'textarea') val = val || '';
+
+      const control = (f.type === 'textarea' || f.type === 'lines')
+        ? `<textarea data-key="${f.key}" data-kind="${f.type}" rows="6"
+             placeholder="${esc(f.key === 'reviewTaxonomy' && config ? (config.defaultTaxonomyText || '') : '')}">${esc(val)}</textarea>`
+        : `<input type="${f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text'}"
+             data-key="${f.key}" data-kind="${f.type}" value="${esc(val)}" ${f.type === 'password' ? 'autocomplete="off"' : ''}/>`;
+
       html += `<div class="field">
         <label>${esc(f.label)}</label>
-        <input type="${inputType}" data-key="${f.key}" data-kind="${f.type}" value="${esc(val)}" ${f.type === 'password' ? 'autocomplete="off"' : ''}/>
+        ${control}
         ${f.hint ? `<div class="hint">${f.hint}</div>` : ''}
       </div>`;
     });
     html += `</div>`;
   });
+
+  // Launch alerts
+  const a = (config && config.alerts) || {};
+  const alertToggles = [
+    ['enabled', 'Master switch'], ['onLaunch', 'Game goes live'], ['milestones', 'Player milestones'],
+    ['newPeak', 'New peak'], ['spikes', 'Spikes / drops'], ['reviews', 'New reviews'],
+    ['reviewsOnlyNegative', 'Only negative reviews'], ['scoreBandChange', 'Rating band change'],
+    ['bigStreams', 'Big Twitch streams']
+  ];
+  html += `<div class="set-group"><h3>Launch Alerts</h3><div class="toggles" id="alertToggles">` +
+    alertToggles.map(([k, label]) => {
+      const on = a[k];
+      return `<label class="toggle ${on ? 'on' : ''}"><input type="checkbox" data-alert="${k}" ${on ? 'checked' : ''}/> ${esc(label)}</label>`;
+    }).join('') + `</div>`;
+  const alertNums = [
+    ['spikePct', 'Spike threshold (% change)'],
+    ['spikeMinPlayers', 'Ignore spikes below N players'],
+    ['bigStreamViewers', 'Big-stream viewer threshold']
+  ];
+  alertNums.forEach(([k, label]) => {
+    html += `<div class="field"><label>${esc(label)}</label>
+      <input type="number" data-alertnum="${k}" value="${esc(a[k] != null ? a[k] : '')}"/></div>`;
+  });
+  html += `</div>`;
+
   body.innerHTML = html;
 
-  const srcNames = { steam: 'Steam', reddit: 'Reddit', bluesky: 'Bluesky', news: 'Steam News', twitch: 'Twitch', youtube: 'YouTube', x: 'X' };
+  const srcNames = { steam: 'Steam', reddit: 'Reddit', bluesky: 'Bluesky', news: 'Steam News', web: 'Web / News', twitch: 'Twitch', youtube: 'YouTube', x: 'X' };
   el('sourceToggles').innerHTML = Object.entries(srcNames).map(([k, name]) => {
     const on = config && config.sources && config.sources[k];
     return `<label class="toggle ${on ? 'on' : ''}"><input type="checkbox" data-src="${k}" ${on ? 'checked' : ''}/> ${name}</label>`;
   }).join('');
-  el('sourceToggles').querySelectorAll('input').forEach((cb) => {
+  body.querySelectorAll('.toggles input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener('change', () => cb.closest('.toggle').classList.toggle('on', cb.checked));
   });
 }
 
 async function saveSettings() {
   const patch = { sources: {} };
-  el('settingsBody').querySelectorAll('input[data-key]').forEach((inp) => {
+  el('settingsBody').querySelectorAll('input[data-key], textarea[data-key]').forEach((inp) => {
     const key = inp.dataset.key, kind = inp.dataset.kind;
     let v = inp.value.trim();
-    if (kind === 'number') v = Math.max(15, parseInt(v, 10) || 60);
-    else if (kind === 'list') v = v.split(',').map((x) => x.trim()).filter(Boolean);
-    patch[key] = v;
+    if (kind === 'number') {
+      v = Math.max(15, parseInt(v, 10) || 60);
+    } else if (kind === 'days') {
+      // A window, not a poll interval — it has its own floor and default.
+      v = Math.max(1, parseInt(v, 10) || 365);
+    } else if (kind === 'list') {
+      v = v.split(',').map((x) => x.trim()).filter(Boolean);
+    } else if (kind === 'lines') {
+      v = v.split('\n').map((line) => {
+        const i = line.indexOf(':');
+        if (i < 0) return null;
+        const appId = line.slice(0, i).trim();
+        const name = line.slice(i + 1).trim();
+        return appId ? { appId, name: name || `App ${appId}` } : null;
+      }).filter(Boolean);
+    } else if (kind === 'textarea') {
+      v = v || null; // blank means "use the built-in set"
+    }
+    setPath(patch, key, v);
   });
   el('sourceToggles').querySelectorAll('input[data-src]').forEach((cb) => {
     patch.sources[cb.dataset.src] = cb.checked;
+  });
+  patch.alerts = {};
+  document.querySelectorAll('input[data-alert]').forEach((cb) => {
+    patch.alerts[cb.dataset.alert] = cb.checked;
+  });
+  document.querySelectorAll('input[data-alertnum]').forEach((inp) => {
+    const v = parseInt(inp.value, 10);
+    if (!Number.isNaN(v)) patch.alerts[inp.dataset.alertnum] = Math.max(0, v);
   });
   el('saveHint').textContent = 'saving…';
   config = await cultwatch.updateConfig(patch);
@@ -584,7 +759,12 @@ function wireUi() {
   el('drawerScrim').addEventListener('click', closeDrawer);
   el('saveSettings').addEventListener('click', saveSettings);
   el('clearHistBtn').addEventListener('click', async () => {
-    if (confirm('Clear stored player-count history? The chart resets.')) {
+    if (confirm(
+      'Clear ALL stored player history?\n\n' +
+      'This deletes the rolling chart, the permanent day-by-day rollups and the ' +
+      'event timeline. Steam publishes no historical player data, so none of it ' +
+      'can be recovered.\n\nStored reviews are kept.'
+    )) {
       await cultwatch.clearHistory();
       toast('History cleared');
     }
@@ -593,6 +773,41 @@ function wireUi() {
   document.body.addEventListener('click', (e) => {
     const item = e.target.closest('[data-url]');
     if (item && item.dataset.url) cultwatch.openExternal(item.dataset.url);
+  });
+
+  // Alert center
+  el('bellBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleAlertCenter(); });
+  el('alertCenter').addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => toggleAlertCenter(false));
+  el('alertList').addEventListener('click', (e) => {
+    const it = e.target.closest('[data-alert]');
+    if (!it) return;
+    const a = alertLog[Number(it.dataset.alert)];
+    if (a && a.url) cultwatch.openExternal(a.url);
+  });
+  el('muteBtn').addEventListener('click', async () => {
+    soundMuted = !soundMuted;
+    await cultwatch.setOsMute(soundMuted);
+    updateMuteBtn();
+    toast(soundMuted ? 'Notifications muted' : 'Notifications on');
+  });
+  el('testAlertBtn').addEventListener('click', () => cultwatch.testAlert());
+  el('clearAlertsBtn').addEventListener('click', () => { alertLog = []; unreadAlerts = 0; updateBadge(); renderAlertList(); });
+
+  // Auto-update
+  el('updatePill').addEventListener('click', () => {
+    if (el('updatePill').classList.contains('downloading')) return;
+    cultwatch.installUpdate();
+  });
+  el('checkUpdatesBtn').addEventListener('click', async () => {
+    manualUpdateCheck = true;
+    const r = await cultwatch.checkUpdates();
+    if (!r.ok) { manualUpdateCheck = false; toast(r.error || 'Update check unavailable', true); }
+  });
+
+  el('viewSwitch').addEventListener('click', (e) => {
+    const b = e.target.closest('.vs-btn');
+    if (b) setView(b.dataset.view);
   });
 
   el('feedTabs').addEventListener('click', (e) => {
@@ -611,7 +826,11 @@ function wireUi() {
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if (snapshot) renderChart(snapshot); }, 150);
+    resizeTimer = setTimeout(() => {
+      if (!snapshot) return;
+      renderChart(snapshot);
+      resizeTrendChart();
+    }, 150);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -628,6 +847,141 @@ function wireUi() {
     // refresh relative timestamps in feeds
     document.querySelectorAll('.fi-time').forEach(() => {});
   }, 5000);
+}
+
+// ============================================================
+// Alert center
+// ============================================================
+const ALERT_ICONS = {
+  launch: '🚀', milestone: '🎉', peak: '📈', 'spike-up': '⚡', 'spike-down': '🔻',
+  'review-pos': '👍', 'review-neg': '👎', 'first-review': '⭐', 'score-band': '📊',
+  'big-stream': '📺', test: '🔔'
+};
+
+function handleAlerts(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const centerOpen = !el('alertCenter').classList.contains('hidden');
+  for (const a of list) {
+    alertLog.unshift({ ...a, read: centerOpen });
+    if (!centerOpen) unreadAlerts++;
+  }
+  if (alertLog.length > 100) alertLog = alertLog.slice(0, 100);
+
+  updateBadge();
+  renderAlertList();
+
+  // Bell shake + toast + sound for the newest alert.
+  const bell = el('bellBtn');
+  bell.classList.remove('ring'); void bell.offsetWidth; bell.classList.add('ring');
+  const top = list[0];
+  toast(`${ALERT_ICONS[top.type] || '🔔'} ${top.title}`, top.urgency === 'critical');
+  if (!soundMuted) playChime(list.some((a) => a.urgency === 'critical'));
+}
+
+function updateBadge() {
+  const b = el('alertBadge');
+  if (unreadAlerts > 0) { b.textContent = unreadAlerts > 99 ? '99+' : unreadAlerts; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+
+function renderAlertList() {
+  const box = el('alertList');
+  if (!alertLog.length) {
+    box.innerHTML = `<div class="ac-empty">No alerts yet.<br>Launch-day events — milestones, spikes, reviews and big streams — show up here and as desktop notifications.</div>`;
+    return;
+  }
+  box.innerHTML = alertLog.map((a, i) => `
+    <div class="ac-item ${a.read ? '' : 'unread'} ${a.urgency === 'critical' ? 'crit' : ''}" data-alert="${i}">
+      <div class="ac-ico">${ALERT_ICONS[a.type] || '🔔'}</div>
+      <div class="ac-body">
+        <div class="ac-title">${esc(a.title)}</div>
+        <div class="ac-text">${esc(a.body)}</div>
+        <div class="ac-time">${new Date(a.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ago(a.ts)} ago</div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleAlertCenter(force) {
+  const c = el('alertCenter');
+  const show = force != null ? force : c.classList.contains('hidden');
+  c.classList.toggle('hidden', !show);
+  if (show) {
+    unreadAlerts = 0;
+    alertLog.forEach((a) => { a.read = true; });
+    updateBadge();
+    renderAlertList();
+  }
+}
+
+function updateMuteBtn() {
+  const btn = el('muteBtn');
+  if (btn) btn.textContent = soundMuted ? '🔇 muted' : '🔊 on';
+}
+
+// Short synthesized chime — no external audio asset (CSP-safe).
+function playChime(critical) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = critical ? [880, 660, 880] : [660, 880];
+    let t = audioCtx.currentTime;
+    for (const f of notes) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine'; osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.18);
+      t += 0.14;
+    }
+  } catch { /* audio not available */ }
+}
+
+// ============================================================
+// Auto-update UI
+// ============================================================
+let manualUpdateCheck = false;
+function handleUpdateStatus(s) {
+  const pill = el('updatePill');
+  const text = el('updatePillText');
+  switch (s.state) {
+    case 'checking':
+      if (manualUpdateCheck) toast('Checking for updates…');
+      break;
+    case 'available':
+      toast(`⬇ Update ${s.info && s.info.version ? 'v' + s.info.version : ''} available — downloading…`);
+      pill.classList.remove('hidden', 'downloading');
+      text.textContent = 'Downloading update…';
+      pill.classList.add('downloading');
+      break;
+    case 'downloading':
+      pill.classList.remove('hidden');
+      pill.classList.add('downloading');
+      text.textContent = `Downloading… ${s.info ? s.info.percent : 0}%`;
+      break;
+    case 'downloaded': {
+      // The desktop updater has already downloaded the update, so the action is
+      // "Restart". Android only ever *offers* the APK, so it supplies its own
+      // label — promising a restart there would be a lie.
+      const action = (s.info && s.info.actionLabel) || 'Restart';
+      const ver = s.info && s.info.version ? ' v' + s.info.version : '';
+      pill.classList.remove('hidden', 'downloading');
+      text.textContent = `Update ready${ver} — ${action}`;
+      toast(`✅ Update ${ver.trim() || 'available'} — click "Update ready" to ${action.toLowerCase()}`);
+      handleAlerts([{ type: 'test', title: '⬇ Update ready', body: `A new version of CultWatch${ver ? ' (' + ver.trim() + ')' : ''} is ready — ${action.toLowerCase()} to install.`, urgency: 'normal', url: '', ts: Date.now() }]);
+      break;
+    }
+    case 'none':
+      if (manualUpdateCheck) toast('You are on the latest version ✓');
+      break;
+    case 'error':
+      if (manualUpdateCheck) toast(`Update check failed: ${s.info ? s.info.message : 'unknown'}`, true);
+      break;
+    default:
+      break;
+  }
+  if (s.state === 'none' || s.state === 'error') manualUpdateCheck = false;
 }
 
 let toastTimer = null;

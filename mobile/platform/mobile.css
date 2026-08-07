@@ -1,0 +1,179 @@
+/* CultWatch — Android overrides.
+ *
+ * Loaded after styles.css, so this only has to correct what a phone changes:
+ * the desktop sheet assumes a wide window, a mouse, and no notch. The design
+ * system itself (colours, type scale, the amber accent) is inherited untouched.
+ *
+ * Two form factors matter on a Fold: the ~344dp cover screen, where everything
+ * must collapse to one column, and the ~840dp unfolded screen, which is closer
+ * to a small tablet and can keep two.
+ */
+
+/* Safe areas: the topbar must clear the punch-hole/status bar, and the board
+   must clear the gesture pill, or content sits under both. */
+.topbar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+  padding-bottom: 8px;
+  padding-left: calc(env(safe-area-inset-left, 0px) + 10px);
+  padding-right: calc(env(safe-area-inset-right, 0px) + 10px);
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  height: auto;
+  /* The desktop bar is a single 62px row sized for a ~1400px window. Its
+     children are laid out in one line with `margin-left: auto` pushing the
+     actions to the far right — on a ~350px phone that pushed ⚙ and 🔔 clean off
+     the edge, unreachable with no scroll to recover them. Wrapping is what makes
+     the row honest about not fitting. */
+}
+
+/* Nothing in the bar may force the row wider than the screen. Without min-width:0
+   a flex item refuses to shrink below its content, which is precisely how the
+   action buttons got pushed out of view. */
+.topbar > * { min-width: 0; }
+
+/* The actions take a full row of their own and wrap within it, so every button
+   is reachable no matter how narrow the device. This is the actual fix for the
+   missing ⚙. */
+.topbar-right {
+  flex: 1 1 100%;
+  margin-left: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 10px;
+  order: 5;
+}
+
+.brand { flex: 1 1 auto; }
+.brand-sub { max-width: 100%; }
+.launch-status { flex: 0 1 auto; min-width: 0; margin-left: 0; }
+
+.board {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+/* Touch targets: the desktop icon buttons are ~28px, below the 44px minimum
+   that stops mis-taps. */
+.btn, .vs-btn, .tab, .link-btn {
+  min-height: 40px;
+  padding-inline: 12px;
+}
+.btn.icon { min-width: 44px; }
+
+/* The view switch is the primary navigation on a phone, so it gets a full row
+   of its own rather than competing for space in the header. */
+.view-switch { width: 100%; order: 10; flex: 1 1 100%; }
+.view-switch .vs-btn { flex: 1 1 0; text-align: center; min-width: 0; padding-inline: 4px; }
+
+/* Cover-screen widths cannot fit "TINYBUILD" at the desktop letter-spacing
+   alongside two other tabs, and a clipped tab label is a button people do not
+   realise they can press. */
+@media (max-width: 420px) {
+  .view-switch .vs-btn { font-size: 11px; letter-spacing: 0.5px; }
+}
+
+/* Long game names must not widen the bar; they ellipse instead. */
+.brand-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The alert center is a 384px dropdown anchored `right: 0` to the bell. On a
+   344px screen it is wider than the viewport, and because it extends leftwards
+   from a bell sitting near the right edge it ran ~100px off the LEFT side — the
+   list was there, just unreachable.
+
+   No amount of width-clamping fixes an anchor that narrow: it has to leave the
+   bell's positioning context entirely. A fixed bottom sheet is always fully on
+   screen whatever the topbar wraps to, and lands under the thumb rather than at
+   the top of a tall phone. */
+@media (max-width: 700px) {
+  /* `backdrop-filter` on an ancestor creates a containing block for
+     position: fixed descendants. The alert sheet lives inside .topbar, so with
+     the blur present "fixed" resolved against the topbar rather than the
+     viewport and the sheet floated off the top of the screen — by 51px at
+     673px wide, where the topbar is short enough not to hide it.
+     The blur is decorative over an already near-opaque gradient, and dropping
+     it on mobile also saves a per-frame compositing pass. */
+  .topbar { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+  .alert-center {
+    position: fixed;
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 65vh;
+    border-radius: 14px;
+  }
+  .ac-head { flex-wrap: wrap; gap: 6px 10px; }
+  .ac-tools { flex-wrap: wrap; }
+  /* Comfortably tappable rows, and a list that scrolls rather than clipping. */
+  .ac-item { padding: 12px 11px; }
+  .ac-list { max-height: none; }
+}
+
+/* Panel headers put a title and a tab group on one line. At ~344px the range
+   tabs (24h / 7d / All) and the feed tabs pushed ~80px past the right edge —
+   measured, not guessed. They must wrap rather than run off. */
+.panel-head { flex-wrap: wrap; gap: 6px 10px; }
+.panel-head h2 { min-width: 0; }
+.panel-tools { flex-wrap: wrap; min-width: 0; }
+.tabs { flex-wrap: wrap; }
+
+/* The 40px touch target above is right for real buttons, but applying its
+   horizontal padding to these small tabs is part of what made them overflow. */
+.tab { padding-inline: 9px; }
+
+/* Belt and braces: the page must never scroll sideways. This is a guard, NOT the
+   fix — anything overflowing here is clipped and therefore unreachable, which is
+   exactly how the tabs above went missing. scripts/check-mobile-layout.js
+   measures the real DOM on a device so clipping cannot hide a regression again. */
+html, body { max-width: 100%; overflow-x: hidden; }
+
+/* Momentum/reception bars and peer rows are already flex rows; they only need
+   the name column to stop being a fixed 150px on a narrow screen. */
+.peer-row .pr-name { width: auto; flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 700px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grid-2, .grid-2.feeds { grid-template-columns: 1fr; gap: 12px; }
+  .board { padding-inline: 10px; }
+  .chart-wrap { min-height: 180px; }
+
+  /* Full-width drawer: a 380px side panel on a 360px screen is a scroll trap. */
+  .drawer { width: 100%; border-left: none; }
+
+  /* Long titles are the norm in the cohort ("Happy's Humble Burger Cult"),
+     so let them wrap instead of ellipsing into uselessness. */
+  .peer-row { flex-wrap: wrap; row-gap: 4px; }
+  .peer-row .pr-name { flex-basis: 100%; white-space: normal; overflow: visible; }
+  .peer-row .pr-bar { flex: 1 1 auto; }
+}
+
+/* Cover screen — very narrow. One KPI per row keeps the numbers legible. */
+@media (max-width: 400px) {
+  .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .topbar-right { gap: 8px; }
+  .board-foot { flex-direction: column; gap: 4px; }
+}
+
+/* Unfolded — effectively a small tablet, so the two-column feeds come back. */
+@media (min-width: 701px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .grid-2.feeds { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Momentum bars can be extremely skewed (one cohort member at 10x the rest),
+   so give the bar a visible track even at 1% width. */
+.peer-row .pr-bar { min-width: 40px; }
+
+/* Kill hover-only affordances that stick on touch. */
+@media (hover: none) {
+  .btn:hover, .vs-btn:hover, .tab:hover { filter: none; }
+}
+
+/* Native-feeling scroll + no accidental text selection on taps. */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+}
+.peer-row, .kpi, .vs-btn, .btn { -webkit-user-select: none; user-select: none; }
